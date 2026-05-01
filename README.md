@@ -1,73 +1,78 @@
-# React + TypeScript + Vite
+# 🎬 PlexSwipe
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+PlexSwipe is a modern, Tinder-style web application designed to help you organize and curate your Plex media library with ease. Say goodbye to tedious manual editing—just swipe to tag, collect, or ignore items in your library.
 
-Currently, two official plugins are available:
+![PlexSwipe Preview](https://via.placeholder.com/800x450.png?text=PlexSwipe+Interface+Preview)
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## ✨ Features
 
-## React Compiler
+- **Tinder-style Interface:** Effortlessly curate your library using intuitive swipe gestures (Up, Down, Left, Right).
+- **Customizable Actions:** Configure exactly what each swipe does:
+  - Add or remove custom labels.
+  - Add or remove media from collections.
+  - Temporarily ignore items (great for "keep for 30 days" workflows).
+- **Advanced Filtering:** Filter your library by status (Unlabeled/New, Specific Labels) and Collections.
+- **Direct Plex Integration:** Communicates directly with your Plex Media Server API—no middleman required.
+- **Privacy First:** All configurations and Plex tokens are stored locally in your browser.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## 🚀 Tech Stack
 
-## Expanding the ESLint configuration
+- **Frontend:** React 19, TypeScript
+- **Styling:** Tailwind CSS 4
+- **Animations:** React Spring, React Tinder Card
+- **Build Tool:** Vite
+- **Icons:** Lucide React
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+## 🛠️ Getting Started
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+### Prerequisites
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+- A running **Plex Media Server**.
+- Your **Plex Token** (Find it [here](https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/)).
+- Node.js (v18+) and npm/pnpm.
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+### Installation
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+1. **Clone the repository:**
+   ```bash
+   git clone https://github.com/lasdem/plex-swipe.git
+   cd plex-swipe
+   ```
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+2. **Install dependencies:**
+   ```bash
+   npm install
+   ```
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+3. **Start the development server:**
+   ```bash
+   npm run dev
+   ```
+
+4. **Open in browser:**
+   Navigate to `http://localhost:5173`.
+
+## ⚙️ Configuration
+
+When you first launch PlexSwipe, you'll be prompted to enter:
+1. **Plex Server URL:** (e.g., `http://192.168.1.100:32400`)
+2. **Plex Token:** Your unique authentication token.
+
+### Default Swipe Actions
+- **Swipe Up:** Add `favorite` label.
+- **Swipe Left:** Add `leaving_soon` label.
+- **Swipe Right:** Add `keep_temp` label and ignore for 30 days.
+- **Swipe Down:** (Unassigned by default).
+
+*You can customize these actions in the Settings menu.*
+
+## 🤝 Contributing
+
+Contributions are welcome! Feel free to open issues or submit pull requests to help improve PlexSwipe.
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+---
+*Disclaimer: This project is not affiliated with Plex Inc.*
