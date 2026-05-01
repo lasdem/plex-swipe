@@ -24,6 +24,7 @@ export interface PlexMediaItem {
   addedAt: number;
   updatedAt: number;
   Label?: { tag: string }[];
+  Collection?: { tag: string }[];
 }
 
 export class PlexService {
