@@ -43,23 +43,55 @@ export class PlexService {
     this.token = token;
   }
 
+  private getHeaders() {
+    return {
+      'Accept': 'application/json',
+      'X-Plex-Token': this.token,
+      'X-Plex-Client-Identifier': getClientIdentifier(),
+      'X-Plex-Product': APP_NAME,
+      'X-Plex-Device': 'Web',
+      'X-Plex-Platform': 'Web',
+      'X-Plex-Features': 'external-media,collections,details',
+    };
+  }
+
   private getUrl(path: string) {
-    const separator = path.includes('?') ? '&' : '?';
-    return `${this.baseUrl}${path}${separator}X-Plex-Token=${this.token}`;
+    return `${this.baseUrl}${path}`;
   }
 
   async getLibraries(): Promise<PlexLibrary[]> {
     const response = await axios.get(this.getUrl('/library/sections'), {
-      headers: { 'Accept': 'application/json' }
+      headers: this.getHeaders()
     });
     return response.data.MediaContainer.Directory || [];
   }
 
   async getLibraryItems(libraryId: string): Promise<PlexMediaItem[]> {
-    const response = await axios.get(this.getUrl(`/library/sections/${libraryId}/all`), {
-      headers: { 'Accept': 'application/json' }
+    const params = new URLSearchParams({
+      includeCollections: '1',
+      includeExternalMedia: '1',
+      includeAdvanced: '1',
+      includeDetails: '1',
+      includeGuids: '1',
+      checkFiles: '1',
+      'X-Plex-Container-Start': '0',
+      'X-Plex-Container-Size': '500',
+    });
+    const response = await axios.get(this.getUrl(`/library/sections/${libraryId}/all?${params.toString()}`), {
+      headers: this.getHeaders()
     });
     return response.data.MediaContainer.Metadata || [];
+  }
+
+  async getMetadata(ratingKey: string): Promise<PlexMediaItem> {
+    const params = new URLSearchParams({
+      includeCollections: '1',
+      includeAdvanced: '1',
+    });
+    const response = await axios.get(this.getUrl(`/library/metadata/${ratingKey}?${params.toString()}`), {
+      headers: this.getHeaders()
+    });
+    return response.data.MediaContainer.Metadata[0];
   }
 
   async addTag(ratingKey: string, tagType: 'label' | 'collection', tagValue: string): Promise<void> {
@@ -68,7 +100,7 @@ export class PlexService {
       [`${tagType}.locked`]: '1'
     });
     await axios.put(this.getUrl(`/library/metadata/${ratingKey}?${params.toString()}`), null, {
-      headers: { 'Accept': 'application/json' }
+      headers: this.getHeaders()
     });
   }
 
@@ -78,7 +110,7 @@ export class PlexService {
       [`${tagType}.locked`]: '1'
     });
     await axios.put(this.getUrl(`/library/metadata/${ratingKey}?${params.toString()}`), null, {
-      headers: { 'Accept': 'application/json' }
+      headers: this.getHeaders()
     });
   }
 
@@ -151,15 +183,28 @@ export const getServers = async (token: string): Promise<PlexServer[]> => {
     if (resource.provides.includes('server')) {
       const connections = resource.connections || [];
       connections.forEach((conn: any) => {
+        // Add the original URI (usually HTTPS .plex.direct if includeHttps=1)
         servers.push({
           name: `${resource.name} (${conn.local ? 'Local' : 'Remote'})`,
           clientIdentifier: resource.clientIdentifier,
           uri: conn.uri,
           local: conn.local,
         });
+
+        // If it's a local connection and using HTTPS, also offer a plain HTTP fallback
+        if (conn.local && conn.uri.startsWith('https://') && conn.address) {
+          const port = conn.port || 32400;
+          servers.push({
+            name: `${resource.name} (Local IP Fallback)`,
+            clientIdentifier: resource.clientIdentifier,
+            uri: `http://${conn.address}:${port}`,
+            local: true,
+          });
+        }
       });
     }
   });
 
-  return servers;
+  // Remove duplicates (sometimes multiple connections point to the same URI)
+  return servers.filter((v, i, a) => a.findIndex(t => t.uri === v.uri) === i);
 };

@@ -1,5 +1,9 @@
 import { useState, useEffect, useMemo } from 'react'
-import { Settings as SettingsIcon, ChevronLeft, Filter } from 'lucide-react'
+import { 
+  Settings as SettingsIcon, ChevronLeft, Filter,
+  ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Heart, Star, Trash2, Ban, EyeOff, Check, Bookmark, 
+  ThumbsUp, ThumbsDown, Archive, Flag
+} from 'lucide-react'
 import SettingsModal from './components/SettingsModal'
 import LibrarySelector from './components/LibrarySelector'
 import CardStack from './components/CardStack'
@@ -13,11 +17,35 @@ export interface SwipeAction {
   days?: number;
 }
 
+export const AVAILABLE_ICONS = {
+  ArrowUp: { component: ArrowUp, label: 'Arrow Up' },
+  ArrowDown: { component: ArrowDown, label: 'Arrow Down' },
+  ArrowLeft: { component: ArrowLeft, label: 'Arrow Left' },
+  ArrowRight: { component: ArrowRight, label: 'Arrow Right' },
+  Heart: { component: Heart, label: 'Heart' },
+  Star: { component: Star, label: 'Star' },
+  Trash2: { component: Trash2, label: 'Delete' },
+  Ban: { component: Ban, label: 'Ban' },
+  EyeOff: { component: EyeOff, label: 'Hide' },
+  Check: { component: Check, label: 'Check' },
+  Bookmark: { component: Bookmark, label: 'Bookmark' },
+  ThumbsUp: { component: ThumbsUp, label: 'Thumbs Up' },
+  ThumbsDown: { component: ThumbsDown, label: 'Thumbs Down' },
+  Archive: { component: Archive, label: 'Archive' },
+  Flag: { component: Flag, label: 'Flag' },
+};
+
+export interface SwipeDirectionConfig {
+  actions: SwipeAction[];
+  icon: string;
+  color: string;
+}
+
 export interface SwipeConfig {
-  up: SwipeAction[];
-  down: SwipeAction[];
-  left: SwipeAction[];
-  right: SwipeAction[];
+  up: SwipeDirectionConfig;
+  down: SwipeDirectionConfig;
+  left: SwipeDirectionConfig;
+  right: SwipeDirectionConfig;
 }
 
 interface PlexConfig {
@@ -26,10 +54,10 @@ interface PlexConfig {
 }
 
 const DEFAULT_SWIPE_CONFIG: SwipeConfig = {
-  up: [{ type: 'add_label', value: 'favorite' }],
-  left: [{ type: 'add_label', value: 'leaving_soon' }],
-  right: [{ type: 'add_label', value: 'keep_temp' }, { type: 'ignore', value: 'keep_temp', days: 30 }],
-  down: []
+  up: { actions: [{ type: 'add_label', value: 'favorite' }], icon: 'ArrowUp', color: '#60a5fa' },
+  left: { actions: [{ type: 'add_label', value: 'leaving_soon' }], icon: 'ArrowLeft', color: '#ef4444' },
+  right: { actions: [{ type: 'add_label', value: 'keep_temp' }, { type: 'ignore', value: 'keep_temp', days: 30 }], icon: 'ArrowRight', color: '#22c55e' },
+  down: { actions: [], icon: 'ArrowDown', color: '#fb923c' }
 };
 
 function App() {
@@ -62,10 +90,40 @@ function App() {
       setIsSettingsOpen(true);
     }
 
-    // Load Swipe Config
+    // Load and Migrate Swipe Config
     const savedSwipeConfig = localStorage.getItem('swipe_config');
     if (savedSwipeConfig) {
-      setSwipeConfig(JSON.parse(savedSwipeConfig));
+      try {
+        const parsed = JSON.parse(savedSwipeConfig);
+        // Migration: If the old format (array of actions) is found, convert to new format
+        if (Array.isArray(parsed.up)) {
+          const migrated: SwipeConfig = {
+            up: { actions: parsed.up, icon: 'ArrowUp', color: DEFAULT_SWIPE_CONFIG.up.color },
+            down: { actions: parsed.down, icon: 'ArrowDown', color: DEFAULT_SWIPE_CONFIG.down.color },
+            left: { actions: parsed.left, icon: 'ArrowLeft', color: DEFAULT_SWIPE_CONFIG.left.color },
+            right: { actions: parsed.right, icon: 'ArrowRight', color: DEFAULT_SWIPE_CONFIG.right.color }
+          };
+          setSwipeConfig(migrated);
+          localStorage.setItem('swipe_config', JSON.stringify(migrated));
+        } else {
+          // Migration: Ensure color exists
+          let needsUpdate = false;
+          ['up', 'down', 'left', 'right'].forEach(dir => {
+            const d = dir as keyof SwipeConfig;
+            if (!parsed[d].color) {
+              parsed[d].color = DEFAULT_SWIPE_CONFIG[d].color;
+              needsUpdate = true;
+            }
+          });
+          setSwipeConfig(parsed);
+          if (needsUpdate) {
+            localStorage.setItem('swipe_config', JSON.stringify(parsed));
+          }
+        }
+      } catch (e) {
+        console.error('Failed to parse swipe config:', e);
+        setSwipeConfig(DEFAULT_SWIPE_CONFIG);
+      }
     }
 
     // Load and Migrate Ignore List
@@ -132,8 +190,25 @@ function App() {
     setIsLoading(true);
     setError(null);
     try {
-      const mediaItems = await plexService.getLibraryItems(library.key);
+      let mediaItems = await plexService.getLibraryItems(library.key);
+      // Initial shuffle for Tinder feel
+      mediaItems = [...mediaItems].sort(() => Math.random() - 0.5);
       setAllItems(mediaItems);
+
+      // Deep Fetch: If the library is small, fetch full metadata for all items 
+      // because some library types (Other Videos) hide Labels in the bulk list.
+      if (mediaItems.length > 0 && mediaItems.length < 100) {
+        console.log(`Performing Deep Fetch for ${mediaItems.length} items...`);
+        let enrichedItems = await Promise.all(
+          mediaItems.map(item => plexService.getMetadata(item.ratingKey))
+        );
+        // Maintain the shuffled order
+        enrichedItems = mediaItems.map(m => enrichedItems.find(e => e.ratingKey === m.ratingKey) || m);
+        console.log('Deep Fetch complete. Sample enriched item:', enrichedItems[0]);
+        setAllItems(enrichedItems);
+      } else if (mediaItems.length > 0) {
+        console.log('Sample item metadata (Standard Fetch):', mediaItems[0]);
+      }
     } catch (err) {
       setError('Failed to fetch library items.');
       console.error(err);
@@ -144,16 +219,24 @@ function App() {
 
   const applyFilters = () => {
     const now = Date.now();
+    console.log('Applying filters to', allItems.length, 'items');
     let filtered = allItems.filter(item => {
       // 1. Local Ignore Filter
       const expiry = ignoreList[item.ratingKey];
-      if (expiry && expiry > now) return false;
+      if (expiry && expiry > now) {
+        console.log('Filtered out by ignore list:', item.title);
+        return false;
+      }
 
       // 2. Status/Label Filter
+      const itemLabels = item.Label || (item as any).Labels || [];
       if (filterStatus === 'unlabeled') {
-        if (item.Label && item.Label.length > 0) return false;
+        if (itemLabels.length > 0) {
+          console.log('Filtering out because it has labels:', item.title, itemLabels);
+          return false;
+        }
       } else if (filterStatus !== 'all') {
-        if (!item.Label?.some(l => l.tag === filterStatus)) return false;
+        if (!itemLabels.some((l: any) => l.tag === filterStatus)) return false;
       }
 
       // 3. Collection Filter
@@ -164,13 +247,17 @@ function App() {
       return true;
     });
 
-    // Shuffle for Tinder feel
-    setItems([...filtered].sort(() => Math.random() - 0.5));
+    console.log('Filtered items count:', filtered.length);
+    // Don't re-shuffle here to maintain stability when an item is swiped
+    setItems(filtered);
   };
 
   const availableLabels = useMemo(() => {
     const labels = new Set<string>();
-    allItems.forEach(item => item.Label?.forEach(l => labels.add(l.tag)));
+    allItems.forEach(item => {
+      const itemLabels = item.Label || (item as any).Labels || [];
+      itemLabels.forEach((l: any) => labels.add(l.tag));
+    });
     return Array.from(labels).sort();
   }, [allItems]);
 
@@ -183,19 +270,32 @@ function App() {
   const handleAction = async (item: PlexMediaItem, direction: string) => {
     if (!plexService) return;
 
-    const actions = swipeConfig[direction as keyof SwipeConfig];
-    if (!actions) return;
+    const config = swipeConfig[direction as keyof SwipeConfig];
+    if (!config || !config.actions) return;
+
+    // Create a local copy to update state reactively
+    const updatedItem = { ...item };
+    if (!updatedItem.Label) updatedItem.Label = [];
+    if (!updatedItem.Collection) updatedItem.Collection = [];
 
     try {
-      for (const action of actions) {
+      for (const action of config.actions) {
         if (action.type === 'add_label') {
           await plexService.addTag(item.ratingKey, 'label', action.value);
+          if (!updatedItem.Label.some(l => l.tag === action.value)) {
+            updatedItem.Label.push({ tag: action.value });
+          }
         } else if (action.type === 'remove_label') {
           await plexService.removeTag(item.ratingKey, 'label', action.value);
+          updatedItem.Label = updatedItem.Label.filter(l => l.tag !== action.value);
         } else if (action.type === 'add_collection') {
           await plexService.addTag(item.ratingKey, 'collection', action.value);
+          if (!updatedItem.Collection.some(c => c.tag === action.value)) {
+            updatedItem.Collection.push({ tag: action.value });
+          }
         } else if (action.type === 'remove_collection') {
           await plexService.removeTag(item.ratingKey, 'collection', action.value);
+          updatedItem.Collection = updatedItem.Collection.filter(c => c.tag !== action.value);
         } else if (action.type === 'ignore') {
           const expiry = action.days === 0 ? Infinity : Date.now() + (action.days || 0) * 24 * 60 * 60 * 1000;
           const newIgnoreList = { ...ignoreList, [item.ratingKey]: expiry };
@@ -203,6 +303,10 @@ function App() {
           localStorage.setItem('ignore_list', JSON.stringify(newIgnoreList));
         }
       }
+
+      // Update local state to trigger filter and label dropdown updates
+      setAllItems(prev => prev.map(i => i.ratingKey === item.ratingKey ? updatedItem : i));
+
     } catch (err) {
       console.error(`Failed to execute actions for ${direction} on ${item.title}:`, err);
     }
@@ -227,7 +331,7 @@ function App() {
     try {
       if (selectedLibrary) {
         for (const item of allItems) {
-          const allActions = Object.values(swipeConfig).flat();
+          const allActions = Object.values(swipeConfig).flatMap(c => c.actions);
           for (const action of allActions) {
             if (action.type === 'add_label' && item.Label?.some(l => l.tag === action.value)) {
               await plexService.removeTag(item.ratingKey, 'label', action.value);
@@ -315,7 +419,7 @@ function App() {
             <p className="text-zinc-400">Loading {selectedLibrary.title}...</p>
           </div>
         ) : (
-          <div className="w-full h-full flex flex-col items-center">
+          <div className="w-full flex-1 flex flex-col items-center min-h-0">
             {/* Filter Bar */}
             <div className="w-full max-w-md px-4 pb-4 animate-in slide-in-from-top duration-300">
               <div className="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-3 flex gap-3">
@@ -351,8 +455,8 @@ function App() {
               </div>
             </div>
 
-            <div className="w-full flex-grow relative flex items-center justify-center">
-              {plexService && <CardStack items={items} plexService={plexService} onAction={handleAction} />}
+            <div className="w-full flex-1 relative flex flex-col items-center">
+              {plexService && <CardStack items={items} plexService={plexService} onAction={handleAction} swipeConfig={swipeConfig} />}
               {items.length === 0 && !isLoading && (
                 <div className="text-center p-8 animate-in fade-in zoom-in duration-500">
                   <div className="bg-zinc-900/50 rounded-full w-16 h-16 flex items-center justify-center mx-auto mb-4">

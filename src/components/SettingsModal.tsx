@@ -1,6 +1,8 @@
-import { useState } from 'react'
-import { X, Trash2, AlertTriangle, Plus, ChevronDown, ChevronUp, LogIn, Globe, Server } from 'lucide-react'
-import type { SwipeConfig, SwipeAction, SwipeActionType } from '../App'
+import { useState, useEffect } from 'react'
+import { 
+  X, Trash2, AlertTriangle, Plus, ChevronDown, ChevronUp, LogIn, Globe, Server, ExternalLink
+} from 'lucide-react'
+import { type SwipeConfig, type SwipeAction, type SwipeActionType, AVAILABLE_ICONS } from '../App'
 import { requestPin, checkPinStatus, getServers, type PlexServer } from '../services/plexApi'
 
 interface SettingsModalProps {
@@ -20,6 +22,16 @@ const ACTION_TYPES: { value: SwipeActionType; label: string }[] = [
   { value: 'ignore', label: 'Ignore Locally' }
 ];
 
+const COLOR_PRESETS = [
+  { label: 'Blue', value: '#60a5fa' },
+  { label: 'Red', value: '#ef4444' },
+  { label: 'Green', value: '#22c55e' },
+  { label: 'Orange', value: '#fb923c' },
+  { label: 'Purple', value: '#a855f7' },
+  { label: 'Pink', value: '#ec4899' },
+  { label: 'Yellow', value: '#eab308' },
+];
+
 const SettingsModal = ({ onSave, onClearData, onClose, initialUrl, initialToken, initialSwipeConfig }: SettingsModalProps) => {
   const [url, setUrl] = useState(initialUrl);
   const [token, setToken] = useState(initialToken);
@@ -33,6 +45,16 @@ const SettingsModal = ({ onSave, onClearData, onClose, initialUrl, initialToken,
   const [servers, setServers] = useState<PlexServer[]>([]);
   const [authError, setAuthError] = useState<string | null>(null);
   const [showManual, setShowManual] = useState(!initialToken);
+
+  useEffect(() => {
+    if (initialToken && servers.length === 0) {
+      getServers(initialToken)
+        .then(setServers)
+        .catch((err) => {
+          console.error('Failed to auto-fetch servers:', err);
+        });
+    }
+  }, [initialToken]);
 
   const handlePlexSignIn = async () => {
     setIsAuthenticating(true);
@@ -110,26 +132,43 @@ const SettingsModal = ({ onSave, onClearData, onClose, initialUrl, initialToken,
 
   const updateAction = (direction: keyof SwipeConfig, index: number, updates: Partial<SwipeAction>) => {
     const newConfig = { ...swipeConfig };
-    newConfig[direction] = [...newConfig[direction]];
-    newConfig[direction][index] = { ...newConfig[direction][index], ...updates };
+    newConfig[direction] = { ...newConfig[direction] };
+    newConfig[direction].actions = [...newConfig[direction].actions];
+    newConfig[direction].actions[index] = { ...newConfig[direction].actions[index], ...updates };
+    setSwipeConfig(newConfig);
+  };
+
+  const updateIcon = (direction: keyof SwipeConfig, icon: string) => {
+    const newConfig = { ...swipeConfig };
+    newConfig[direction] = { ...newConfig[direction], icon };
+    setSwipeConfig(newConfig);
+  };
+
+  const updateColor = (direction: keyof SwipeConfig, color: string) => {
+    const newConfig = { ...swipeConfig };
+    newConfig[direction] = { ...newConfig[direction], color };
     setSwipeConfig(newConfig);
   };
 
   const addAction = (direction: keyof SwipeConfig) => {
     const newConfig = { ...swipeConfig };
-    newConfig[direction] = [...newConfig[direction], { type: 'add_label', value: '' }];
+    newConfig[direction] = { ...newConfig[direction] };
+    newConfig[direction].actions = [...newConfig[direction].actions, { type: 'add_label', value: '' }];
     setSwipeConfig(newConfig);
   };
 
   const removeAction = (direction: keyof SwipeConfig, index: number) => {
     const newConfig = { ...swipeConfig };
-    newConfig[direction] = newConfig[direction].filter((_, i) => i !== index);
+    newConfig[direction] = { ...newConfig[direction] };
+    newConfig[direction].actions = newConfig[direction].actions.filter((_, i) => i !== index);
     setSwipeConfig(newConfig);
   };
 
   const renderActionBuilder = (direction: keyof SwipeConfig, label: string) => {
     const isExpanded = expandedDir === direction;
-    const actions = swipeConfig[direction];
+    const config = swipeConfig[direction];
+    const actions = config.actions;
+    const IconComp = AVAILABLE_ICONS[config.icon as keyof typeof AVAILABLE_ICONS]?.component || AVAILABLE_ICONS.ArrowUp.component;
 
     return (
       <div className="border border-zinc-800 rounded-xl overflow-hidden bg-zinc-950/50">
@@ -139,60 +178,118 @@ const SettingsModal = ({ onSave, onClearData, onClose, initialUrl, initialToken,
           className="w-full flex items-center justify-between p-4 hover:bg-zinc-800/50 transition-colors"
         >
           <div className="flex items-center gap-3">
-            <span className="text-sm font-bold uppercase tracking-widest text-orange-500">{label}</span>
-            <span className="text-xs text-zinc-500">{actions.length} actions</span>
+            <div className="p-2 bg-zinc-900 rounded-lg" style={{ color: config.color }}>
+              <IconComp className="w-4 h-4" />
+            </div>
+            <div className="text-left">
+              <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 block leading-none mb-1">{label}</span>
+              <span className="text-xs font-bold text-zinc-200">{actions.length} actions</span>
+            </div>
           </div>
-          {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+          {isExpanded ? <ChevronUp className="w-4 h-4 text-zinc-600" /> : <ChevronDown className="w-4 h-4 text-zinc-600" />}
         </button>
 
         {isExpanded && (
-          <div className="p-4 pt-0 space-y-3">
-            {actions.map((action, idx) => (
-              <div key={idx} className="flex flex-col gap-2 p-3 bg-zinc-900 rounded-lg border border-zinc-800">
-                <div className="flex gap-2">
-                  <select
-                    value={action.type}
-                    onChange={(e) => updateAction(direction, idx, { type: e.target.value as SwipeActionType })}
-                    className="flex-1 bg-zinc-950 border border-zinc-800 rounded px-2 py-1 text-xs text-white"
-                  >
-                    {ACTION_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
-                  </select>
-                  <button
-                    type="button"
-                    onClick={() => removeAction(direction, idx)}
-                    className="p-1 text-zinc-500 hover:text-red-500 transition-colors"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
-                
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={action.value}
-                    onChange={(e) => updateAction(direction, idx, { value: e.target.value })}
-                    placeholder={action.type === 'ignore' ? 'Reference label' : 'Label or Collection name'}
-                    className="flex-grow bg-zinc-950 border border-zinc-800 rounded px-2 py-1 text-xs text-white"
-                  />
-                  {action.type === 'ignore' && (
-                    <input
-                      type="number"
-                      value={action.days || 0}
-                      onChange={(e) => updateAction(direction, idx, { days: parseInt(e.target.value) || 0 })}
-                      placeholder="Days"
-                      className="w-16 bg-zinc-950 border border-zinc-800 rounded px-2 py-1 text-xs text-white"
-                    />
-                  )}
-                </div>
+          <div className="p-4 pt-0 space-y-4 border-t border-zinc-900/50 mt-2">
+            <div className="space-y-2">
+              <label className="text-[10px] font-bold text-zinc-500 uppercase">Swipe Icon</label>
+              <div className="grid grid-cols-5 gap-2">
+                {Object.entries(AVAILABLE_ICONS).map(([key, data]) => {
+                  const Icon = data.component;
+                  const isSelected = config.icon === key;
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => updateIcon(direction, key)}
+                      title={data.label}
+                      className={`p-2 rounded-lg flex items-center justify-center transition-all ${
+                        isSelected 
+                          ? 'text-zinc-900 shadow-lg' 
+                          : 'bg-zinc-900 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800'
+                      }`}
+                      style={isSelected ? { backgroundColor: config.color } : {}}
+                    >
+                      <Icon className="w-4 h-4" />
+                    </button>
+                  );
+                })}
               </div>
-            ))}
-            <button
-              type="button"
-              onClick={() => addAction(direction)}
-              className="w-full py-2 border border-dashed border-zinc-800 rounded-lg text-xs text-zinc-500 hover:text-orange-500 hover:border-orange-500/50 transition-all flex items-center justify-center gap-1"
-            >
-              <Plus className="w-3 h-3" /> Add Action
-            </button>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-[10px] font-bold text-zinc-500 uppercase">Icon Color</label>
+              <div className="flex flex-wrap gap-2">
+                {COLOR_PRESETS.map((preset) => (
+                  <button
+                    key={preset.value}
+                    type="button"
+                    onClick={() => updateColor(direction, preset.value)}
+                    className={`w-6 h-6 rounded-full border-2 transition-all ${
+                      config.color === preset.value ? 'border-white scale-110' : 'border-transparent hover:scale-105'
+                    }`}
+                    style={{ backgroundColor: preset.value }}
+                    title={preset.label}
+                  />
+                ))}
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <label className="text-[10px] font-bold text-zinc-500 uppercase">Actions</label>
+              {actions.map((action, idx) => (
+                <div key={idx} className="flex flex-col gap-2 p-3 bg-zinc-900 rounded-lg border border-zinc-800/50">
+                  <div className="flex gap-2">
+                    <select
+                      value={action.type}
+                      onChange={(e) => updateAction(direction, idx, { type: e.target.value as SwipeActionType })}
+                      className="flex-1 bg-zinc-950 border border-zinc-800 rounded px-2 py-1 text-xs text-white"
+                    >
+                      {ACTION_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => removeAction(direction, idx)}
+                      className="p-1 text-zinc-500 hover:text-red-500 transition-colors"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                  
+                  <div className="flex gap-2">
+                    {action.type !== 'ignore' && (
+                      <input
+                        type="text"
+                        value={action.value}
+                        onChange={(e) => updateAction(direction, idx, { value: e.target.value })}
+                        placeholder="Label or Collection name"
+                        className="flex-grow bg-zinc-950 border border-zinc-800 rounded px-2 py-1 text-xs text-white"
+                      />
+                    )}
+                    {action.type === 'ignore' && (
+                      <div className="flex-grow flex items-center gap-2">
+                        <span className="text-[10px] text-zinc-500 font-medium">Ignore for</span>
+                        <input
+                          type="number"
+                          value={action.days || 0}
+                          onChange={(e) => updateAction(direction, idx, { days: parseInt(e.target.value) || 0 })}
+                          placeholder="Days"
+                          className="w-16 bg-zinc-950 border border-zinc-800 rounded px-2 py-1 text-xs text-white"
+                        />
+                        <span className="text-[10px] text-zinc-500 font-medium">days (0 = forever)</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+              <button
+                type="button"
+                onClick={() => addAction(direction)}
+                className="w-full py-2 border border-dashed border-zinc-800 rounded-lg text-xs text-zinc-500 hover:text-orange-500 hover:border-orange-500/50 transition-all flex items-center justify-center gap-1"
+              >
+                <Plus className="w-3 h-3" /> Add Action
+              </button>
+            </div>
           </div>
         )}
       </div>
@@ -236,21 +333,40 @@ const SettingsModal = ({ onSave, onClearData, onClose, initialUrl, initialToken,
               </button>
 
               {servers.length > 0 && (
-                <div className="space-y-2 animate-in slide-in-from-top-2 duration-300">
-                  <label className="text-xs font-medium text-zinc-500 flex items-center gap-1">
-                    <Server className="w-3 h-3" /> Select Server
-                  </label>
-                  <select
-                    value={url}
-                    onChange={(e) => setUrl(e.target.value)}
-                    className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-4 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-orange-500 transition-all cursor-pointer"
-                  >
-                    {servers.map((srv, idx) => (
-                      <option key={idx} value={srv.uri}>
-                        {srv.name}
-                      </option>
-                    ))}
-                  </select>
+                <div className="space-y-3 animate-in slide-in-from-top-2 duration-300">
+                  <div className="space-y-2">
+                    <label className="text-xs font-medium text-zinc-500 flex items-center gap-1">
+                      <Server className="w-3 h-3" /> Select Server
+                    </label>
+                    <select
+                      value={url}
+                      onChange={(e) => setUrl(e.target.value)}
+                      className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-4 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-orange-500 transition-all cursor-pointer"
+                    >
+                      {servers.map((srv, idx) => (
+                        <option key={idx} value={srv.uri}>
+                          {srv.name} — {srv.uri}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  
+                  {url.includes('.plex.direct') && (
+                    <div className="p-3 bg-zinc-950/50 border border-zinc-800 rounded-lg">
+                      <p className="text-[10px] text-zinc-500 leading-relaxed">
+                        <AlertTriangle className="w-3 h-3 inline mr-1 text-orange-500" />
+                        Connections to <code className="text-zinc-400">.plex.direct</code> may fail if your browser hasn't trusted the server's certificate or if DNS rebinding protection is active.
+                      </p>
+                      <a 
+                        href={`${url}/identity`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="mt-2 inline-flex items-center gap-1 text-[10px] font-bold text-orange-500 hover:underline"
+                      >
+                        <ExternalLink className="w-3 h-3" /> Verify connection in new tab
+                      </a>
+                    </div>
+                  )}
                 </div>
               )}
 
