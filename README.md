@@ -52,6 +52,23 @@ PlexSwipe is a modern, Tinder-style web application designed to help you organiz
 4. **Open in browser:**
    Navigate to `http://localhost:5173`.
 
+### 🐳 Running with Docker
+
+If you prefer to run PlexSwipe in a containerized environment, you can use Docker Compose:
+
+1. **Build and start the container:**
+   ```bash
+   docker compose up -d
+   ```
+
+2. **Access the application:**
+   Navigate to `http://localhost:5173`.
+
+3. **Stop the container:**
+   ```bash
+   docker compose down
+   ```
+
 ## ⚙️ Configuration
 
 When you first launch PlexSwipe, you'll be prompted to enter:
@@ -75,4 +92,4 @@ Contributions are welcome! Feel free to open issues or submit pull requests to h
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ---
-*Disclaimer: This project is not affiliated with Plex Inc.*
+*Disclaimer: This project is not affiliated with Plex Inc. Vibe coded with Gemini.*

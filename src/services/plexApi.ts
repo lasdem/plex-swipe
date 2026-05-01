@@ -27,6 +27,13 @@ export interface PlexMediaItem {
   Collection?: { tag: string }[];
 }
 
+export interface PlexServer {
+  name: string;
+  clientIdentifier: string;
+  uri: string;
+  local: boolean;
+}
+
 export class PlexService {
   private baseUrl: string;
   private token: string;
@@ -87,3 +94,72 @@ export class PlexService {
     return `${this.baseUrl}/photo/:/transcode?${params.toString()}`;
   }
 }
+
+// --- OAuth / Auth Helper Methods ---
+
+const PLEX_TV_URL = 'https://plex.tv/api/v2';
+const APP_NAME = 'PlexSwipe';
+
+export const getClientIdentifier = (): string => {
+  let clientId = localStorage.getItem('plex_client_id');
+  if (!clientId) {
+    clientId = crypto.randomUUID();
+    localStorage.setItem('plex_client_id', clientId);
+  }
+  return clientId;
+};
+
+export const requestPin = async () => {
+  const clientId = getClientIdentifier();
+  const response = await axios.post(`${PLEX_TV_URL}/pins`, {
+    strong: true
+  }, {
+    headers: {
+      'Accept': 'application/json',
+      'X-Plex-Product': APP_NAME,
+      'X-Plex-Client-Identifier': clientId,
+    }
+  });
+  return response.data; // { id, code, ... }
+};
+
+export const checkPinStatus = async (pinId: number) => {
+  const clientId = getClientIdentifier();
+  const response = await axios.get(`${PLEX_TV_URL}/pins/${pinId}`, {
+    headers: {
+      'Accept': 'application/json',
+      'X-Plex-Client-Identifier': clientId,
+    }
+  });
+  return response.data; // { id, code, authToken, ... }
+};
+
+export const getServers = async (token: string): Promise<PlexServer[]> => {
+  const clientId = getClientIdentifier();
+  const response = await axios.get(`${PLEX_TV_URL}/resources?includeHttps=1`, {
+    headers: {
+      'Accept': 'application/json',
+      'X-Plex-Token': token,
+      'X-Plex-Client-Identifier': clientId,
+    }
+  });
+
+  const resources = response.data || [];
+  const servers: PlexServer[] = [];
+
+  resources.forEach((resource: any) => {
+    if (resource.provides.includes('server')) {
+      const connections = resource.connections || [];
+      connections.forEach((conn: any) => {
+        servers.push({
+          name: `${resource.name} (${conn.local ? 'Local' : 'Remote'})`,
+          clientIdentifier: resource.clientIdentifier,
+          uri: conn.uri,
+          local: conn.local,
+        });
+      });
+    }
+  });
+
+  return servers;
+};

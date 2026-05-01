@@ -1,6 +1,7 @@
 import { useState } from 'react'
-import { X, Trash2, AlertTriangle, Plus, ChevronDown, ChevronUp } from 'lucide-react'
+import { X, Trash2, AlertTriangle, Plus, ChevronDown, ChevronUp, LogIn, Globe, Server } from 'lucide-react'
 import type { SwipeConfig, SwipeAction, SwipeActionType } from '../App'
+import { requestPin, checkPinStatus, getServers, type PlexServer } from '../services/plexApi'
 
 interface SettingsModalProps {
   onSave: (url: string, token: string, swipeConfig: SwipeConfig) => void;
@@ -26,6 +27,74 @@ const SettingsModal = ({ onSave, onClearData, onClose, initialUrl, initialToken,
   const [isConfirmingClear, setIsConfirmingClear] = useState(false);
   const [isClearing, setIsClearing] = useState(false);
   const [expandedDir, setExpandedDir] = useState<keyof SwipeConfig | null>(null);
+
+  // OAuth States
+  const [isAuthenticating, setIsAuthenticating] = useState(false);
+  const [servers, setServers] = useState<PlexServer[]>([]);
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [showManual, setShowManual] = useState(!initialToken);
+
+  const handlePlexSignIn = async () => {
+    setIsAuthenticating(true);
+    setAuthError(null);
+    try {
+      const pinData = await requestPin();
+      const clientId = localStorage.getItem('plex_client_id');
+      const authUrl = `https://app.plex.tv/auth#?clientID=${clientId}&code=${pinData.code}&context[device][product]=PlexSwipe`;
+      
+      const popup = window.open(authUrl, 'PlexAuth', 'width=600,height=700');
+      
+      const pollInterval = setInterval(async () => {
+        try {
+          const status = await checkPinStatus(pinData.id);
+          if (status.authToken) {
+            clearInterval(pollInterval);
+            if (popup) popup.close();
+            setToken(status.authToken);
+            
+            // Fetch servers
+            try {
+              const fetchedServers = await getServers(status.authToken);
+              setServers(fetchedServers);
+              if (fetchedServers.length > 0) {
+                // If we found servers, default to the first one but don't stop authentication state yet
+                // so user sees progress.
+                setUrl(fetchedServers[0].uri);
+              }
+              setIsAuthenticating(false);
+            } catch (err) {
+              console.error('Failed to fetch servers:', err);
+              setAuthError('Authenticated successfully, but could not discover your servers.');
+              setIsAuthenticating(false);
+            }
+          }
+        } catch (err) {
+          console.error('Polling error:', err);
+          // Keep polling unless window is closed or explicit error
+        }
+      }, 2000);
+
+      // Stop polling if popup is closed manually
+      const checkPopup = setInterval(() => {
+        if (popup && popup.closed) {
+          clearInterval(pollInterval);
+          clearInterval(checkPopup);
+          setIsAuthenticating(false);
+        }
+      }, 1000);
+
+      // Timeout after 5 minutes
+      setTimeout(() => {
+        clearInterval(pollInterval);
+        setIsAuthenticating(false);
+      }, 5 * 60 * 1000);
+
+    } catch (err) {
+      console.error('Sign in error:', err);
+      setIsAuthenticating(false);
+      setAuthError('Failed to initialize Plex authentication.');
+    }
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -144,30 +213,84 @@ const SettingsModal = ({ onSave, onClearData, onClose, initialUrl, initialToken,
           <form onSubmit={handleSubmit} className="space-y-8">
             <div className="space-y-4">
               <h3 className="text-sm font-medium text-zinc-400 uppercase tracking-wider">Plex Connection</h3>
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <label className="text-xs font-medium text-zinc-500">Plex Server URL</label>
-                  <input
-                    type="url"
+              
+              {authError && (
+                <div className="p-3 bg-red-900/20 border border-red-500/30 text-red-400 text-xs rounded-lg flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 shrink-0" />
+                  {authError}
+                </div>
+              )}
+
+              <button
+                type="button"
+                onClick={handlePlexSignIn}
+                disabled={isAuthenticating}
+                className="w-full py-3 bg-[#e5a00d] hover:bg-[#c98c0b] text-black font-bold rounded-xl flex items-center justify-center gap-2 transition-all shadow-lg shadow-orange-500/10 disabled:opacity-50 active:scale-[0.98]"
+              >
+                {isAuthenticating ? (
+                  <div className="w-5 h-5 border-2 border-black/30 border-t-black rounded-full animate-spin" />
+                ) : (
+                  <LogIn className="w-5 h-5" />
+                )}
+                {isAuthenticating ? 'Waiting for Plex...' : 'Sign In with Plex'}
+              </button>
+
+              {servers.length > 0 && (
+                <div className="space-y-2 animate-in slide-in-from-top-2 duration-300">
+                  <label className="text-xs font-medium text-zinc-500 flex items-center gap-1">
+                    <Server className="w-3 h-3" /> Select Server
+                  </label>
+                  <select
                     value={url}
                     onChange={(e) => setUrl(e.target.value)}
-                    placeholder="https://plex.yourdomain.net"
-                    className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-4 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-orange-500 transition-all"
-                    required
-                  />
+                    className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-4 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-orange-500 transition-all cursor-pointer"
+                  >
+                    {servers.map((srv, idx) => (
+                      <option key={idx} value={srv.uri}>
+                        {srv.name}
+                      </option>
+                    ))}
+                  </select>
                 </div>
-                
-                <div className="space-y-2">
-                  <label className="text-xs font-medium text-zinc-500">X-Plex-Token</label>
-                  <input
-                    type="password"
-                    value={token}
-                    onChange={(e) => setToken(e.target.value)}
-                    placeholder="Your Plex Token"
-                    className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-4 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-orange-500 transition-all"
-                    required
-                  />
-                </div>
+              )}
+
+              <div className="pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowManual(!showManual)}
+                  className="text-[10px] text-zinc-500 uppercase font-bold hover:text-zinc-300 transition-colors flex items-center gap-1"
+                >
+                  {showManual ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                  Manual Configuration
+                </button>
+
+                {showManual && (
+                  <div className="mt-4 space-y-4 p-4 bg-zinc-950/30 border border-zinc-800/50 rounded-xl animate-in fade-in duration-200">
+                    <div className="space-y-2">
+                      <label className="text-xs font-medium text-zinc-500 flex items-center gap-1">
+                        <Globe className="w-3 h-3" /> Server URL
+                      </label>
+                      <input
+                        type="url"
+                        value={url}
+                        onChange={(e) => setUrl(e.target.value)}
+                        placeholder="https://plex.yourdomain.net"
+                        className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-4 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-orange-500 transition-all"
+                      />
+                    </div>
+                    
+                    <div className="space-y-2">
+                      <label className="text-xs font-medium text-zinc-500">X-Plex-Token</label>
+                      <input
+                        type="password"
+                        value={token}
+                        onChange={(e) => setToken(e.target.value)}
+                        placeholder="Your Plex Token"
+                        className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-4 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-orange-500 transition-all"
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 
