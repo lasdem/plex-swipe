@@ -494,14 +494,14 @@ const SettingsView = ({ onSave, onClearData, onClose, initialUrl, initialToken, 
               className="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg font-semibold bg-red-900/20 text-red-500 border border-red-500/20 hover:bg-red-900/30 transition-colors text-sm"
             >
               <Trash2 className="w-4 h-4" />
-              Clear Data & Reset Tags
+              Clear Local Cache & Ignore List
             </button>
           ) : (
             <div className="bg-red-900/10 border border-red-500/30 rounded-xl p-3 sm:p-4 space-y-3 sm:space-y-4">
               <div className="flex gap-2 sm:gap-3 text-red-200 text-[11px] sm:text-xs">
                 <AlertTriangle className="w-8 h-8 sm:w-10 sm:h-10 shrink-0 text-red-500" />
                 <p>
-                  This will attempt to remove configured labels/collections from your Plex server based on your CURRENT swipe action settings. It will also clear your local ignore list.
+                  This will clear your local swipe history and ignore list. It will <strong>not</strong> remove any tags or collections from your Plex server.
                 </p>
               </div>
               <div className="flex gap-2">

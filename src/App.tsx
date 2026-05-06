@@ -85,7 +85,7 @@ function App() {
   const [items, setItems] = useState<PlexMediaItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [filterStatus, setFilterStatus] = useState<string>('unlabeled');
+  const [filterLabel, setFilterLabel] = useState<string>('unlabeled');
   const [filterCollection, setFilterCollection] = useState<string>('none');
   const [swipedKeys, setSwipedKeys] = useState<Set<string>>(new Set());
 
@@ -181,7 +181,7 @@ function App() {
 
   useEffect(() => {
     applyFilters();
-  }, [allItems, filterStatus, filterCollection, ignoreList, swipedKeys]);
+  }, [allItems, filterLabel, filterCollection, ignoreList, swipedKeys]);
 
   const fetchLibraries = async () => {
     if (!plexService) return;
@@ -249,13 +249,13 @@ function App() {
 
       // 2. Label Filter
       const itemLabels = item.Label || item.Labels || [];
-      if (filterStatus === 'unlabeled') {
+      if (filterLabel === 'unlabeled') {
         if (itemLabels.length > 0) {
           console.log('Filtering out because it has labels:', item.title, itemLabels);
           return false;
         }
-      } else if (filterStatus !== 'all') {
-        if (!itemLabels.some((l) => l.tag === filterStatus)) return false;
+      } else if (filterLabel !== 'all') {
+        if (!itemLabels.some((l) => l.tag === filterLabel)) return false;
       }
 
       // 3. Collection Filter
@@ -425,23 +425,8 @@ function App() {
   };
 
   const handleClearData = async () => {
-    if (!plexService) return;
-
     setIsLoading(true);
     try {
-      if (selectedLibrary) {
-        for (const item of allItems) {
-          const allActions = Object.values(swipeConfig).flatMap(c => c.actions);
-          for (const action of allActions) {
-            if (action.type === 'add_label' && item.Label?.some(l => l.tag.toLowerCase() === action.value.toLowerCase())) {
-              await plexService.removeTag(item.ratingKey, 'label', action.value);
-            } else if (action.type === 'add_collection' && item.Collection?.some(c => c.tag.toLowerCase() === action.value.toLowerCase())) {
-              await plexService.removeTag(item.ratingKey, 'collection', action.value);
-            }
-          }
-        }
-      }
-
       localStorage.removeItem('ignore_list');
       setIgnoreList({});
       setSwipedKeys(new Set());
@@ -451,7 +436,7 @@ function App() {
       setIsSettingsOpen(false);
     } catch (err) {
       console.error('Failed to clear data:', err);
-      setError('Some items could not be reset on the server.');
+      setError('Failed to clear local data.');
     } finally {
       setIsLoading(false);
     }
@@ -536,14 +521,18 @@ function App() {
                   <div className="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-3 flex gap-3">
                     <div className="flex-1 space-y-1">
                       <label className="text-[10px] font-bold text-zinc-500 uppercase flex items-center gap-1">
-                        <Filter className="w-3 h-3" /> Status
+                        <Filter className="w-3 h-3" /> Label
                       </label>
                       <select
-                        value={filterStatus}
-                        onChange={(e) => setFilterStatus(e.target.value)}
+                        value={filterLabel}
+                        onChange={(e) => {
+                          setFilterLabel(e.target.value);
+                          setSwipedKeys(new Set());
+                          setActionHistory([]);
+                        }}
                         className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-2 py-1 text-xs text-white focus:outline-none"
                       >
-                        <option value="all">All Items</option>
+                        <option value="all">All Labels</option>
                         <option value="unlabeled">Unlabeled (New)</option>
                         {availableLabels.length > 0 && <optgroup label="Specific Label">
                           {availableLabels.map(l => <option key={l} value={l}>{l}</option>)}
@@ -556,7 +545,11 @@ function App() {
                       </label>
                       <select
                         value={filterCollection}
-                        onChange={(e) => setFilterCollection(e.target.value)}
+                        onChange={(e) => {
+                          setFilterCollection(e.target.value);
+                          setSwipedKeys(new Set());
+                          setActionHistory([]);
+                        }}
                         className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-2 py-1 text-xs text-white focus:outline-none"
                       >
                         <option value="all">All Collections</option>
@@ -582,7 +575,7 @@ function App() {
                 <div className="w-full flex-1 relative flex flex-col items-center">
                   {plexService && (
                     <CardStack
-                      key={`${selectedLibrary?.key}-${filterStatus}-${filterCollection}`}
+                      key={`${selectedLibrary?.key}-${filterLabel}-${filterCollection}`}
                       items={items}
                       plexService={plexService}
                       onAction={handleAction}
@@ -600,7 +593,7 @@ function App() {
                       <h3 className="text-lg font-bold text-zinc-300">No items match filters</h3>
                       <p className="text-zinc-500 text-sm mt-1">Try changing your filters or library selection.</p>
                       <button
-                        onClick={() => { setFilterStatus('unlabeled'); setFilterCollection('none'); }}
+                        onClick={() => { setFilterLabel('unlabeled'); setFilterCollection('none'); }}
                         className="mt-6 text-orange-500 text-sm font-semibold hover:underline"
                       >
                         Reset all filters
