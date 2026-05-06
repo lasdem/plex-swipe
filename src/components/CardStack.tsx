@@ -19,7 +19,10 @@ interface TinderCardRef {
 }
 
 const CardStack = ({ items, plexService, onAction, onUndo, canUndo, swipeConfig }: CardStackProps) => {
-  const [currentIndex, setCurrentIndex] = useState(items.length - 1);
+  const [swipeOffset, setSwipeOffset] = useState(0);
+  const [flyingCards, setFlyingCards] = useState<Record<string, string>>({});
+
+  const activeIndex = items.length - 1 - swipeOffset;
 
   // Keyboard Shortcuts
   useEffect(() => {
@@ -55,13 +58,8 @@ const CardStack = ({ items, plexService, onAction, onUndo, canUndo, swipeConfig 
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [currentIndex, items, onUndo]); 
+  }, [activeIndex, items, onUndo]); 
 
-  // Reset index when items change
-  useEffect(() => {
-    setCurrentIndex(items.length - 1);
-  }, [items]);
-  
   // Create refs for all items to trigger manual swipes
   const cardRefs = useMemo(
     () => 
@@ -72,23 +70,31 @@ const CardStack = ({ items, plexService, onAction, onUndo, canUndo, swipeConfig 
   );
 
   const handleSwipe = (direction: string, item: PlexMediaItem) => {
-    onAction(item, direction);
+    setFlyingCards(prev => ({ ...prev, [item.ratingKey]: direction }));
+    setSwipeOffset(prev => prev + 1);
   };
 
-  const handleCardLeftScreen = () => {
-    setCurrentIndex((prev) => prev - 1);
+  const handleCardLeftScreen = (item: PlexMediaItem, dir: string) => {
+    onAction(item, dir);
+    setFlyingCards(prev => {
+      const next = { ...prev };
+      delete next[item.ratingKey];
+      return next;
+    });
+    setSwipeOffset(prev => Math.max(0, prev - 1));
   };
 
   const handleManualSwipe = (direction: string) => {
-    if (currentIndex >= 0 && currentIndex < items.length) {
-      cardRefs[currentIndex].current?.swipe(direction);
+    if (activeIndex >= 0 && activeIndex < items.length) {
+      cardRefs[activeIndex].current?.swipe(direction);
     }
   };
 
-  // Only show the top few cards for performance
+  // Show top few cards plus any currently flying cards
   const visibleItems = useMemo(() => {
-    return items.slice(Math.max(0, currentIndex - 2), currentIndex + 1);
-  }, [items, currentIndex]);
+    const start = Math.max(0, activeIndex - 2);
+    return items.slice(start, items.length);
+  }, [items, activeIndex]);
 
   const renderSwipeButton = (direction: 'left' | 'right' | 'up' | 'down') => {
     const config = swipeConfig[direction];
@@ -96,19 +102,21 @@ const CardStack = ({ items, plexService, onAction, onUndo, canUndo, swipeConfig 
     const IconComp = AVAILABLE_ICONS[iconKey]?.component || AVAILABLE_ICONS.ArrowUp.component;
     
     const isSmall = direction === 'up' || direction === 'down';
+    const isUnavailable = activeIndex < 0;
 
     return (
       <button
         onClick={() => handleManualSwipe(direction)}
-        className={`${isSmall ? 'p-3' : 'p-4'} bg-zinc-900 border border-zinc-800 rounded-full hover:scale-110 active:scale-95 transition-all shadow-xl hover:border-zinc-600`}
-        style={{ color: config.color }}
+        disabled={isUnavailable}
+        className={`${isSmall ? 'p-3' : 'p-4'} bg-zinc-900 border border-zinc-800 rounded-full hover:scale-110 active:scale-95 transition-all shadow-xl hover:border-zinc-600 disabled:opacity-50 disabled:scale-100 disabled:cursor-not-allowed`}
+        style={{ color: isUnavailable ? '#3f3f46' : config.color }}
       >
         <IconComp className={isSmall ? "w-6 h-6" : "w-8 h-8"} strokeWidth={isSmall ? 2.5 : 3} />
       </button>
     );
   };
 
-  if (currentIndex < 0 && items.length === 0) {
+  if (items.length === 0 && activeIndex < 0) {
     return (
       <div className="flex flex-col items-center justify-center space-y-4 animate-in fade-in duration-500">
         <div className="p-6 bg-zinc-900 rounded-full">
@@ -140,8 +148,9 @@ const CardStack = ({ items, plexService, onAction, onUndo, canUndo, swipeConfig 
               item={item}
               posterUrl={plexService.getTranscodedPhotoUrl(item.thumb)}
               onSwipe={(dir) => handleSwipe(dir, item)}
-              onCardLeftScreen={handleCardLeftScreen}
+              onCardLeftScreen={(dir) => handleCardLeftScreen(item, dir)}
               cardRef={cardRefs[itemIndex]}
+              isFlying={!!flyingCards[item.ratingKey]}
             />
           );
         })}

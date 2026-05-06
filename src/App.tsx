@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
-import { 
+import {
   Settings as SettingsIcon, ChevronLeft, Filter,
-  ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Heart, Star, Trash2, Ban, EyeOff, Check, Bookmark, 
+  ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Heart, Star, Trash2, Ban, EyeOff, Check, Bookmark,
   ThumbsUp, ThumbsDown, Archive, Flag
 } from 'lucide-react'
 import SettingsView from './components/SettingsView'
@@ -86,7 +86,8 @@ function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [filterStatus, setFilterStatus] = useState<string>('unlabeled');
-  const [filterCollection, setFilterCollection] = useState<string>('all');
+  const [filterCollection, setFilterCollection] = useState<string>('none');
+  const [swipedKeys, setSwipedKeys] = useState<Set<string>>(new Set());
 
   const plexService = useMemo(() => {
     if (config) {
@@ -167,7 +168,7 @@ function App() {
       });
       localStorage.removeItem('plex_swipes');
     }
-    
+
     localStorage.setItem('ignore_list', JSON.stringify(currentIgnoreList));
     setIgnoreList(currentIgnoreList);
   }, []);
@@ -180,7 +181,7 @@ function App() {
 
   useEffect(() => {
     applyFilters();
-  }, [allItems, filterStatus, filterCollection, ignoreList]);
+  }, [allItems, filterStatus, filterCollection, ignoreList, swipedKeys]);
 
   const fetchLibraries = async () => {
     if (!plexService) return;
@@ -199,8 +200,9 @@ function App() {
 
   const handleSelectLibrary = async (library: PlexLibrary) => {
     setSelectedLibrary(library);
+    setSwipedKeys(new Set()); // Reset swiped keys
     if (!plexService) return;
-    
+
     setIsLoading(true);
     setError(null);
     try {
@@ -235,6 +237,9 @@ function App() {
     const now = Date.now();
     console.log('Applying filters to', allItems.length, 'items');
     let filtered = allItems.filter(item => {
+      // 0. Session Swiped Filter
+      if (swipedKeys.has(item.ratingKey)) return false;
+
       // 1. Local Ignore Filter
       const expiry = ignoreList[item.ratingKey];
       if (expiry && expiry > now) {
@@ -242,7 +247,7 @@ function App() {
         return false;
       }
 
-      // 2. Status/Label Filter
+      // 2. Label Filter
       const itemLabels = item.Label || item.Labels || [];
       if (filterStatus === 'unlabeled') {
         if (itemLabels.length > 0) {
@@ -254,7 +259,9 @@ function App() {
       }
 
       // 3. Collection Filter
-      if (filterCollection !== 'all') {
+      if (filterCollection === 'none') {
+        if ((item.Collection || []).length > 0) return false;
+      } else if (filterCollection !== 'all') {
         if (!item.Collection?.some(c => c.tag === filterCollection)) return false;
       }
 
@@ -289,36 +296,49 @@ function App() {
 
     // Save to history before executing
     setActionHistory(prev => [{ item, direction }, ...prev].slice(0, 10));
+    setSwipedKeys(prev => new Set(prev).add(item.ratingKey));
 
     // Create a local copy to update state reactively
     const updatedItem = { ...item };
-    if (!updatedItem.Label) updatedItem.Label = [];
-    if (!updatedItem.Collection) updatedItem.Collection = [];
+    updatedItem.Label = [...(updatedItem.Label || updatedItem.Labels || [])];
+    updatedItem.Collection = [...(updatedItem.Collection || [])];
+
+    const additions: { type: 'label' | 'collection', value: string }[] = [];
+    const removals: { type: 'label' | 'collection', value: string }[] = [];
 
     try {
       for (const action of config.actions) {
         if (action.type === 'add_label') {
-          await plexService.addTag(item.ratingKey, 'label', action.value);
-          if (!updatedItem.Label.some(l => l.tag === action.value)) {
+          additions.push({ type: 'label', value: action.value });
+          if (!updatedItem.Label.some(l => l.tag.toLowerCase() === action.value.toLowerCase())) {
             updatedItem.Label.push({ tag: action.value });
           }
-        } else if (action.type === 'remove_label') {
-          await plexService.removeTag(item.ratingKey, 'label', action.value);
-          updatedItem.Label = updatedItem.Label.filter(l => l.tag !== action.value);
-        } else if (action.type === 'add_collection') {
-          await plexService.addTag(item.ratingKey, 'collection', action.value);
-          if (!updatedItem.Collection.some(c => c.tag === action.value)) {
+        }
+        else if (action.type === 'remove_label') {
+          removals.push({ type: 'label', value: action.value });
+          updatedItem.Label = updatedItem.Label.filter(l => l.tag.toLowerCase() !== action.value.toLowerCase());
+        }
+        else if (action.type === 'add_collection') {
+          additions.push({ type: 'collection', value: action.value });
+          if (!updatedItem.Collection.some(c => c.tag.toLowerCase() === action.value.toLowerCase())) {
             updatedItem.Collection.push({ tag: action.value });
           }
-        } else if (action.type === 'remove_collection') {
-          await plexService.removeTag(item.ratingKey, 'collection', action.value);
-          updatedItem.Collection = updatedItem.Collection.filter(c => c.tag !== action.value);
-        } else if (action.type === 'ignore') {
+        }
+        else if (action.type === 'remove_collection') {
+          removals.push({ type: 'collection', value: action.value });
+          updatedItem.Collection = updatedItem.Collection.filter(c => c.tag.toLowerCase() !== action.value.toLowerCase());
+        }
+        else if (action.type === 'ignore') {
           const expiry = action.days === 0 ? Infinity : Date.now() + (action.days || 0) * 24 * 60 * 60 * 1000;
           const newIgnoreList = { ...ignoreList, [item.ratingKey]: expiry };
           setIgnoreList(newIgnoreList);
           localStorage.setItem('ignore_list', JSON.stringify(newIgnoreList));
         }
+      }
+
+      // Execute batch API call
+      if (additions.length > 0 || removals.length > 0) {
+        await plexService.updateTags(item.ratingKey, additions, removals);
       }
 
       // Update local state to trigger filter and label dropdown updates
@@ -338,22 +358,35 @@ function App() {
 
     // Remove from history immediately for responsiveness
     setActionHistory(prev => prev.slice(1));
+    setSwipedKeys(prev => {
+      const next = new Set(prev);
+      next.delete(item.ratingKey);
+      return next;
+    });
+
+    const additions: { type: 'label' | 'collection', value: string }[] = [];
+    const removals: { type: 'label' | 'collection', value: string }[] = [];
 
     try {
-      // 1. Reverse actions on the server
+      // 1. Reverse actions logic
       for (const action of config.actions) {
         if (action.type === 'add_label') {
-          await plexService.removeTag(item.ratingKey, 'label', action.value);
+          removals.push({ type: 'label', value: action.value });
         } else if (action.type === 'remove_label') {
-          await plexService.addTag(item.ratingKey, 'label', action.value);
+          additions.push({ type: 'label', value: action.value });
         } else if (action.type === 'add_collection') {
-          await plexService.removeTag(item.ratingKey, 'collection', action.value);
+          removals.push({ type: 'collection', value: action.value });
         } else if (action.type === 'remove_collection') {
-          await plexService.addTag(item.ratingKey, 'collection', action.value);
+          additions.push({ type: 'collection', value: action.value });
         }
       }
 
-      // 2. Handle local ignore list removal
+      // 2. Execute batch API call to restore original state
+      if (additions.length > 0 || removals.length > 0) {
+        await plexService.updateTags(item.ratingKey, additions, removals);
+      }
+
+      // 3. Handle local ignore list removal
       if (config.actions.some(a => a.type === 'ignore')) {
         setIgnoreList(prev => {
           const next = { ...prev };
@@ -363,9 +396,9 @@ function App() {
         });
       }
 
-      // 3. Restore item to the items list (reverting local metadata changes)
+      // 4. Restore item to the items list (reverting local metadata changes)
       setAllItems(prev => prev.map(i => i.ratingKey === item.ratingKey ? item : i));
-      
+
     } catch (err) {
       console.error('Failed to undo action:', err);
     }
@@ -381,7 +414,7 @@ function App() {
       localStorage.removeItem('plex_token');
       setConfig(null);
     }
-    
+
     localStorage.setItem('swipe_config', JSON.stringify(newSwipeConfig));
     setSwipeConfig(newSwipeConfig);
     setIsSettingsOpen(false);
@@ -393,24 +426,25 @@ function App() {
 
   const handleClearData = async () => {
     if (!plexService) return;
-    
+
     setIsLoading(true);
     try {
       if (selectedLibrary) {
         for (const item of allItems) {
           const allActions = Object.values(swipeConfig).flatMap(c => c.actions);
           for (const action of allActions) {
-            if (action.type === 'add_label' && item.Label?.some(l => l.tag === action.value)) {
+            if (action.type === 'add_label' && item.Label?.some(l => l.tag.toLowerCase() === action.value.toLowerCase())) {
               await plexService.removeTag(item.ratingKey, 'label', action.value);
-            } else if (action.type === 'add_collection' && item.Collection?.some(c => c.tag === action.value)) {
+            } else if (action.type === 'add_collection' && item.Collection?.some(c => c.tag.toLowerCase() === action.value.toLowerCase())) {
               await plexService.removeTag(item.ratingKey, 'collection', action.value);
             }
           }
         }
       }
-      
+
       localStorage.removeItem('ignore_list');
       setIgnoreList({});
+      setSwipedKeys(new Set());
       setAllItems([]);
       setItems([]);
       setSelectedLibrary(null);
@@ -425,6 +459,7 @@ function App() {
 
   const resetSelection = () => {
     setSelectedLibrary(null);
+    setSwipedKeys(new Set());
     setAllItems([]);
     setItems([]);
   };
@@ -436,7 +471,7 @@ function App() {
           <header className="w-full max-w-4xl p-4 flex justify-between items-center z-20 sticky top-0 bg-zinc-950/80 backdrop-blur-md">
             <div className="flex items-center gap-2">
               {selectedLibrary && (
-                <button 
+                <button
                   onClick={resetSelection}
                   className="p-2 -ml-2 rounded-full hover:bg-zinc-800 transition-colors"
                 >
@@ -445,7 +480,7 @@ function App() {
               )}
               <h1 className="text-xl font-bold text-orange-500">PlexSwipe</h1>
             </div>
-            <button 
+            <button
               onClick={() => setIsSettingsOpen(true)}
               className="p-2 rounded-full hover:bg-zinc-800 transition-colors"
             >
@@ -470,7 +505,7 @@ function App() {
                   </div>
                   <h2 className="text-2xl font-bold mb-2">Welcome to PlexSwipe</h2>
                   <p className="text-zinc-400 mb-8 max-w-xs mx-auto">Connect your Plex server to start managing your library with simple swipe actions.</p>
-                  <button 
+                  <button
                     onClick={() => setIsSettingsOpen(true)}
                     className="w-full bg-orange-600 hover:bg-orange-500 text-white py-3 rounded-xl font-bold transition-all shadow-lg shadow-orange-600/20 active:scale-95"
                   >
@@ -480,10 +515,10 @@ function App() {
               </div>
             ) : !selectedLibrary ? (
               <div className="w-full max-w-md px-4 pt-8">
-                <LibrarySelector 
-                  libraries={libraries} 
-                  onSelect={handleSelectLibrary} 
-                  isLoading={isLoading} 
+                <LibrarySelector
+                  libraries={libraries}
+                  onSelect={handleSelectLibrary}
+                  isLoading={isLoading}
                 />
               </div>
             ) : isLoading ? (
@@ -525,11 +560,13 @@ function App() {
                         className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-2 py-1 text-xs text-white focus:outline-none"
                       >
                         <option value="all">All Collections</option>
+                        <option value="none">No Collection (New)</option>
                         {availableCollections.map(c => <option key={c} value={c}>{c}</option>)}
                       </select>
+
                     </div>
                   </div>
-                  
+
                   <div className="flex justify-between items-center px-1 mt-2">
                     <span className="text-[10px] font-bold text-zinc-600 uppercase tracking-widest">
                       {items.length} {items.length === 1 ? 'item' : 'items'} remaining
@@ -544,15 +581,17 @@ function App() {
 
                 <div className="w-full flex-1 relative flex flex-col items-center">
                   {plexService && (
-                    <CardStack 
-                      items={items} 
-                      plexService={plexService} 
-                      onAction={handleAction} 
+                    <CardStack
+                      key={`${selectedLibrary?.key}-${filterStatus}-${filterCollection}`}
+                      items={items}
+                      plexService={plexService}
+                      onAction={handleAction}
                       onUndo={handleUndo}
                       canUndo={actionHistory.length > 0}
-                      swipeConfig={swipeConfig} 
+                      swipeConfig={swipeConfig}
                     />
                   )}
+
                   {items.length === 0 && !isLoading && (
                     <div className="text-center p-8 animate-in fade-in zoom-in duration-500">
                       <div className="bg-zinc-900/50 rounded-full w-16 h-16 flex items-center justify-center mx-auto mb-4">
@@ -560,12 +599,13 @@ function App() {
                       </div>
                       <h3 className="text-lg font-bold text-zinc-300">No items match filters</h3>
                       <p className="text-zinc-500 text-sm mt-1">Try changing your filters or library selection.</p>
-                      <button 
-                        onClick={() => { setFilterStatus('all'); setFilterCollection('all'); }}
+                      <button
+                        onClick={() => { setFilterStatus('unlabeled'); setFilterCollection('none'); }}
                         className="mt-6 text-orange-500 text-sm font-semibold hover:underline"
                       >
                         Reset all filters
                       </button>
+
                     </div>
                   )}
                 </div>
@@ -576,8 +616,8 @@ function App() {
       )}
 
       {isSettingsOpen && (
-        <SettingsView 
-          onSave={handleSaveSettings} 
+        <SettingsView
+          onSave={handleSaveSettings}
           onClearData={handleClearData}
           onClose={() => setIsSettingsOpen(false)}
           initialUrl={config?.serverUrl || ''}

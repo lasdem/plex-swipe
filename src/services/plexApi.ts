@@ -65,15 +65,20 @@ export class PlexService {
   }
 
   private enqueue(task: () => Promise<void>): Promise<void> {
-    this.queue = this.queue.then(async () => {
+    // We create a new chain that always continues even if the current task fails.
+    const taskPromise = this.queue.then(async () => {
       try {
         await task();
       } catch (err) {
         console.error('Task in PlexService queue failed:', err);
-        throw err;
+        throw err; // Re-throw so the returned promise rejects
       }
     });
-    return this.queue;
+
+    // Update this.queue to a promise that always resolves, so the NEXT task can run.
+    this.queue = taskPromise.catch(() => {}); 
+    
+    return taskPromise;
   }
 
   private getHeaders() {
@@ -127,28 +132,65 @@ export class PlexService {
     return response.data.MediaContainer.Metadata[0];
   }
 
-  async addTag(ratingKey: string, tagType: 'label' | 'collection', tagValue: string): Promise<void> {
+  /**
+   * Batches multiple tag updates into a single PUT request.
+   * This is much more efficient than sequential requests.
+   */
+  async updateTags(
+    ratingKey: string, 
+    additions: { type: 'label' | 'collection', value: string }[],
+    removals: { type: 'label' | 'collection', value: string }[]
+  ): Promise<void> {
     return this.enqueue(async () => {
-      const params = new URLSearchParams({
-        [`${tagType}[0].tag.tag`]: tagValue,
-        [`${tagType}.locked`]: '1'
+      const queryParts: string[] = [];
+      
+      const addCounters: Record<string, number> = {
+        'label': 0,
+        'collection': 0
+      };
+
+      const remCounters: Record<string, number> = {
+        'label': 0,
+        'collection': 0
+      };
+
+      additions.forEach(add => {
+        const index = addCounters[add.type]++;
+        const key = `${add.type}[${index}].tag.tag`;
+        queryParts.push(`${encodeURIComponent(key)}=${encodeURIComponent(add.value)}`);
       });
-      await axios.put(this.getUrl(`/library/metadata/${ratingKey}?${params.toString()}`), null, {
+
+      removals.forEach(rem => {
+        const index = remCounters[rem.type]++;
+        const key = `${rem.type}[${index}].tag.tag-`;
+        queryParts.push(`${encodeURIComponent(key)}=${encodeURIComponent(rem.value)}`);
+      });
+
+      // Lock the fields if we made changes
+      if (addCounters['label'] > 0 || remCounters['label'] > 0) {
+        queryParts.push(`${encodeURIComponent('label.locked')}=1`);
+      }
+      if (addCounters['collection'] > 0 || remCounters['collection'] > 0) {
+        queryParts.push(`${encodeURIComponent('collection.locked')}=1`);
+      }
+
+      if (queryParts.length === 0) return;
+
+      const queryString = queryParts.join('&');
+      const url = this.getUrl(`/library/metadata/${ratingKey}?${queryString}`);
+      
+      await axios.put(url, null, {
         headers: this.getHeaders()
       });
     });
   }
 
+  async addTag(ratingKey: string, tagType: 'label' | 'collection', tagValue: string): Promise<void> {
+    return this.updateTags(ratingKey, [{ type: tagType, value: tagValue }], []);
+  }
+
   async removeTag(ratingKey: string, tagType: 'label' | 'collection', tagValue: string): Promise<void> {
-    return this.enqueue(async () => {
-      const params = new URLSearchParams({
-        [`${tagType}[0].tag.tag-`]: tagValue,
-        [`${tagType}.locked`]: '1'
-      });
-      await axios.put(this.getUrl(`/library/metadata/${ratingKey}?${params.toString()}`), null, {
-        headers: this.getHeaders()
-      });
-    });
+    return this.updateTags(ratingKey, [], [{ type: tagType, value: tagValue }]);
   }
 
   getTranscodedPhotoUrl(path: string, width: number = 300, height: number = 450): string {

@@ -12,11 +12,12 @@ interface SwipeCardProps {
   item: PlexMediaItem;
   posterUrl: string;
   onSwipe: (direction: string) => void;
-  onCardLeftScreen: () => void;
+  onCardLeftScreen: (direction: string) => void;
   cardRef?: React.RefObject<TinderCardRef | null>;
+  isFlying?: boolean;
 }
 
-const SwipeCard = ({ item, posterUrl, onSwipe, onCardLeftScreen, cardRef }: SwipeCardProps) => {
+const SwipeCard = ({ item, posterUrl, onSwipe, onCardLeftScreen, cardRef, isFlying }: SwipeCardProps) => {
   const [imgError, setImgError] = useState(false);
   const itemLabels = item.Label || item.Labels || [];
   const requester = itemLabels.find((l) => l.tag.startsWith('Requested by:'))?.tag.replace('Requested by:', '').trim();
@@ -31,10 +32,11 @@ const SwipeCard = ({ item, posterUrl, onSwipe, onCardLeftScreen, cardRef }: Swip
         onSwipe={onSwipe}
         onCardLeftScreen={onCardLeftScreen}
         swipeRequirementType="position"
-        swipeThreshold={80}
+        swipeThreshold={50}
+        preventSwipe={[]} // Don't prevent any swipes
       >
         <div 
-          className="relative w-[85vw] max-w-[340px] aspect-[2/3] max-h-full bg-zinc-900 rounded-3xl overflow-hidden shadow-2xl border border-zinc-800 flex flex-col"
+          className={`relative w-[85vw] max-w-[340px] aspect-[2/3] max-h-full bg-zinc-900 rounded-3xl overflow-hidden shadow-2xl border border-zinc-800 flex flex-col transition-opacity duration-300 ${isFlying ? 'opacity-0 scale-95' : 'opacity-100 scale-100'}`}
         >
           {/* Poster Image or Fallback */}
           {!imgError ? (
