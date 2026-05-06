@@ -59,19 +59,30 @@ const SettingsView = ({ onSave, onClearData, onClose, initialUrl, initialToken, 
   const handlePlexSignIn = async () => {
     setIsAuthenticating(true);
     setAuthError(null);
+    
+    // Open popup immediately to avoid being blocked by mobile browsers
+    // Browsers usually block window.open if it's called after an async delay
+    const popup = window.open('about:blank', 'PlexAuth', 'width=600,height=700');
+    if (!popup) {
+      setIsAuthenticating(false);
+      setAuthError('Popup blocked! Please allow popups for this site and try again.');
+      return;
+    }
+
     try {
       const pinData = await requestPin();
       const clientId = localStorage.getItem('plex_client_id');
       const authUrl = `https://app.plex.tv/auth#?clientID=${clientId}&code=${pinData.code}&context[device][product]=PlexSwipe`;
       
-      const popup = window.open(authUrl, 'PlexAuth', 'width=600,height=700');
+      // Update the already-open popup's location
+      popup.location.href = authUrl;
       
       const pollInterval = setInterval(async () => {
         try {
           const status = await checkPinStatus(pinData.id);
           if (status.authToken) {
             clearInterval(pollInterval);
-            if (popup) popup.close();
+            popup.close();
             setToken(status.authToken);
             
             // Fetch servers
@@ -98,7 +109,7 @@ const SettingsView = ({ onSave, onClearData, onClose, initialUrl, initialToken, 
 
       // Stop polling if popup is closed manually
       const checkPopup = setInterval(() => {
-        if (popup && popup.closed) {
+        if (popup.closed) {
           clearInterval(pollInterval);
           clearInterval(checkPopup);
           setIsAuthenticating(false);
@@ -109,11 +120,13 @@ const SettingsView = ({ onSave, onClearData, onClose, initialUrl, initialToken, 
       setTimeout(() => {
         clearInterval(pollInterval);
         setIsAuthenticating(false);
+        if (!popup.closed) popup.close();
       }, 5 * 60 * 1000);
 
     } catch (err) {
       console.error('Sign in error:', err);
       setIsAuthenticating(false);
+      if (popup) popup.close();
       setAuthError('Failed to initialize Plex authentication.');
     }
   };

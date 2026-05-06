@@ -172,7 +172,17 @@ const APP_NAME = 'PlexSwipe';
 export const getClientIdentifier = (): string => {
   let clientId = localStorage.getItem('plex_client_id');
   if (!clientId) {
-    clientId = crypto.randomUUID();
+    // crypto.randomUUID() is only available in secure contexts (HTTPS)
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+      clientId = crypto.randomUUID();
+    } else {
+      // Simple fallback for non-secure contexts
+      clientId = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+        const r = (Math.random() * 16) | 0;
+        const v = c === 'x' ? r : (r & 0x3) | 0x8;
+        return v.toString(16);
+      });
+    }
     localStorage.setItem('plex_client_id', clientId);
   }
   return clientId;
