@@ -8,11 +8,54 @@ interface CardStackProps {
   items: PlexMediaItem[];
   plexService: PlexService;
   onAction: (item: PlexMediaItem, direction: string) => void;
+  onUndo: () => void;
+  canUndo: boolean;
   swipeConfig: SwipeConfig;
 }
 
-const CardStack = ({ items, plexService, onAction, swipeConfig }: CardStackProps) => {
+interface TinderCardRef {
+  swipe: (dir?: string) => Promise<void>;
+  restoreCard: () => Promise<void>;
+}
+
+const CardStack = ({ items, plexService, onAction, onUndo, canUndo, swipeConfig }: CardStackProps) => {
   const [currentIndex, setCurrentIndex] = useState(items.length - 1);
+
+  // Keyboard Shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't trigger if user is typing in an input
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+        onUndo();
+        return;
+      }
+
+      if (e.key === 'Backspace') {
+        onUndo();
+        return;
+      }
+
+      switch (e.key) {
+        case 'ArrowLeft':
+          handleManualSwipe('left');
+          break;
+        case 'ArrowRight':
+          handleManualSwipe('right');
+          break;
+        case 'ArrowUp':
+          handleManualSwipe('up');
+          break;
+        case 'ArrowDown':
+          handleManualSwipe('down');
+          break;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [currentIndex, items, onUndo]); 
 
   // Reset index when items change
   useEffect(() => {
@@ -24,7 +67,7 @@ const CardStack = ({ items, plexService, onAction, swipeConfig }: CardStackProps
     () => 
       Array(items.length)
         .fill(0)
-        .map(() => createRef<any>()),
+        .map(() => createRef<TinderCardRef | null>()),
     [items]
   );
 
@@ -57,7 +100,7 @@ const CardStack = ({ items, plexService, onAction, swipeConfig }: CardStackProps
     return (
       <button
         onClick={() => handleManualSwipe(direction)}
-        className={`${isSmall ? 'p-3' : 'p-4'} bg-zinc-900 border border-zinc-800 rounded-full hover:scale-110 active:scale-95 transition-all shadow-xl`}
+        className={`${isSmall ? 'p-3' : 'p-4'} bg-zinc-900 border border-zinc-800 rounded-full hover:scale-110 active:scale-95 transition-all shadow-xl hover:border-zinc-600`}
         style={{ color: config.color }}
       >
         <IconComp className={isSmall ? "w-6 h-6" : "w-8 h-8"} strokeWidth={isSmall ? 2.5 : 3} />
@@ -65,7 +108,7 @@ const CardStack = ({ items, plexService, onAction, swipeConfig }: CardStackProps
     );
   };
 
-  if (currentIndex < 0) {
+  if (currentIndex < 0 && items.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center space-y-4 animate-in fade-in duration-500">
         <div className="p-6 bg-zinc-900 rounded-full">
@@ -73,6 +116,14 @@ const CardStack = ({ items, plexService, onAction, swipeConfig }: CardStackProps
         </div>
         <h2 className="text-xl font-bold">All caught up!</h2>
         <p className="text-zinc-400 text-center px-6">You've swiped through all items in this library.</p>
+        {canUndo && (
+          <button 
+            onClick={onUndo}
+            className="mt-4 flex items-center gap-2 text-orange-500 font-bold hover:underline"
+          >
+            <RotateCcw className="w-4 h-4" /> Undo last action
+          </button>
+        )}
       </div>
     );
   }
@@ -102,6 +153,16 @@ const CardStack = ({ items, plexService, onAction, swipeConfig }: CardStackProps
           {renderSwipeButton('left')}
           <div className="flex flex-col gap-4">
             {renderSwipeButton('up')}
+            <button
+              onClick={onUndo}
+              disabled={!canUndo}
+              className={`p-2 bg-zinc-900 border border-zinc-800 rounded-full transition-all shadow-lg ${
+                canUndo ? 'text-zinc-400 hover:text-white hover:border-zinc-600 scale-100' : 'text-zinc-800 opacity-50 scale-90'
+              }`}
+              title="Undo (Ctrl+Z)"
+            >
+              <RotateCcw className="w-5 h-5" />
+            </button>
             {renderSwipeButton('down')}
           </div>
           {renderSwipeButton('right')}

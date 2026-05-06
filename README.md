@@ -2,34 +2,31 @@
 
 PlexSwipe is a modern, Tinder-style web application designed to help you organize and curate your Plex media library with ease. Say goodbye to tedious manual editing—just swipe to tag, collect, or ignore items in your library.
 
-![PlexSwipe Preview](https://via.placeholder.com/800x450.png?text=PlexSwipe+Interface+Preview)
+![PlexSwipe Preview](src/assets/hero.png)
 
-## ✨ Features
+## ✨ V1 Features
 
 - **Tinder-style Interface:** Effortlessly curate your library using intuitive swipe gestures (Up, Down, Left, Right).
+- **Keyboard Shortcuts:** Use **Arrow Keys** (Left/Right/Up/Down) for rapid-fire desktop curation.
+- **Robust Undo:** Made a mistake? Press **Backspace** or `Ctrl+Z` to immediately reverse the action on your Plex server and restore the card.
 - **Customizable Actions:** Configure exactly what each swipe does:
   - Add or remove custom labels.
   - Add or remove media from collections.
   - Temporarily ignore items (great for "keep for 30 days" workflows).
 - **Advanced Filtering:** Filter your library by status (Unlabeled/New, Specific Labels) and Collections.
-- **Direct Plex Integration:** Communicates directly with your Plex Media Server API—no middleman required.
-- **Privacy First:** All configurations and Plex tokens are stored locally in your browser.
+- **Progress Tracking:** See exactly how many items are left in your current cleanup session with real-time counters.
+- **PWA Support:** Install PlexSwipe as a standalone app on your mobile device for a native feel.
+- **Direct Plex Integration:** Securely communicates with your Plex Media Server using official API standards.
 
 ## 🚀 Tech Stack
 
 - **Frontend:** React 19, TypeScript
-- **Styling:** Tailwind CSS 4
-- **Animations:** React Spring, React Tinder Card
+- **Styling:** Vanilla CSS (Modern CSS Nesting & Variables)
+- **Animations:** React Tinder Card, Lucide React
 - **Build Tool:** Vite
-- **Icons:** Lucide React
+- **API Client:** Axios (with request serialization queueing)
 
 ## 🛠️ Getting Started
-
-### Prerequisites
-
-- A running **Plex Media Server**.
-- Your **Plex Token** (Find it [here](https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/)).
-- Node.js (v18+) and npm/pnpm.
 
 ### Installation
 
@@ -52,36 +49,19 @@ PlexSwipe is a modern, Tinder-style web application designed to help you organiz
 4. **Open in browser:**
    Navigate to `http://localhost:5173`.
 
-### 🐳 Running with Docker
-
-If you prefer to run PlexSwipe in a containerized environment, you can use Docker Compose:
-
-1. **Build and start the container:**
-   ```bash
-   docker compose up -d
-   ```
-
-2. **Access the application:**
-   Navigate to `http://localhost:5173`.
-
-3. **Stop the container:**
-   ```bash
-   docker compose down
-   ```
-
 ## ⚙️ Configuration
 
-When you first launch PlexSwipe, you'll be prompted to enter:
+Launch the app and Sign In with Plex or enter your credentials manually:
 1. **Plex Server URL:** (e.g., `http://192.168.1.100:32400`)
-2. **Plex Token:** Your unique authentication token.
+2. **X-Plex-Token:** Your unique authentication token.
 
-### Default Swipe Actions
-- **Swipe Up:** Add `favorite` label.
-- **Swipe Left:** Add `leaving_soon` label.
-- **Swipe Right:** Add `keep_temp` label and ignore for 30 days.
-- **Swipe Down:** (Unassigned by default).
+### Default Showcase Actions
+- **Swipe Up:** 🟦 Add to `favorite` collection.
+- **Swipe Left:** 🟥 Add `delete` label.
+- **Swipe Right:** 🟩 Ignore for 30 days (`keep_temp` workflow).
+- **Swipe Down:** 🟧 Clear both `favorite` collection and `delete` label.
 
-*You can customize these actions in the Settings menu.*
+*You can customize these actions, colors, and icons in the Settings menu.*
 
 ## 🤝 Contributing
 

@@ -4,7 +4,7 @@ import {
   ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Heart, Star, Trash2, Ban, EyeOff, Check, Bookmark, 
   ThumbsUp, ThumbsDown, Archive, Flag
 } from 'lucide-react'
-import SettingsModal from './components/SettingsModal'
+import SettingsView from './components/SettingsView'
 import LibrarySelector from './components/LibrarySelector'
 import CardStack from './components/CardStack'
 import { PlexService, type PlexLibrary, type PlexMediaItem } from './services/plexApi'
@@ -54,16 +54,30 @@ interface PlexConfig {
 }
 
 const DEFAULT_SWIPE_CONFIG: SwipeConfig = {
-  up: { actions: [{ type: 'add_label', value: 'favorite' }], icon: 'ArrowUp', color: '#60a5fa' },
-  left: { actions: [{ type: 'add_label', value: 'leaving_soon' }], icon: 'ArrowLeft', color: '#ef4444' },
-  right: { actions: [{ type: 'add_label', value: 'keep_temp' }, { type: 'ignore', value: 'keep_temp', days: 30 }], icon: 'ArrowRight', color: '#22c55e' },
-  down: { actions: [], icon: 'ArrowDown', color: '#fb923c' }
+  up: { actions: [{ type: 'add_collection', value: 'favorite' }], icon: 'ArrowUp', color: '#60a5fa' },
+  left: { actions: [{ type: 'add_label', value: 'delete' }], icon: 'ArrowLeft', color: '#ef4444' },
+  right: { actions: [{ type: 'ignore', value: 'keep_temp', days: 30 }], icon: 'ArrowRight', color: '#22c55e' },
+  down: { actions: [{ type: 'remove_collection', value: 'favorite' }, { type: 'remove_label', value: 'delete' }], icon: 'ArrowDown', color: '#fb923c' }
 };
+
+interface HistoryEntry {
+  item: PlexMediaItem;
+  direction: string;
+}
+
+const CardSkeleton = () => (
+  <div className="w-[85vw] max-w-[340px] aspect-[2/3] bg-zinc-900 rounded-3xl border border-zinc-800 flex flex-col items-center justify-center space-y-4 animate-pulse">
+    <div className="w-16 h-16 bg-zinc-800 rounded-full" />
+    <div className="w-32 h-4 bg-zinc-800 rounded" />
+    <div className="w-24 h-3 bg-zinc-800 rounded" />
+  </div>
+);
 
 function App() {
   const [config, setConfig] = useState<PlexConfig | null>(null);
   const [swipeConfig, setSwipeConfig] = useState<SwipeConfig>(DEFAULT_SWIPE_CONFIG);
   const [ignoreList, setIgnoreList] = useState<Record<string, number>>({});
+  const [actionHistory, setActionHistory] = useState<HistoryEntry[]>([]);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [libraries, setLibraries] = useState<PlexLibrary[]>([]);
   const [selectedLibrary, setSelectedLibrary] = useState<PlexLibrary | null>(null);
@@ -142,8 +156,8 @@ function App() {
     }
 
     if (legacySwipes) {
-      const legacyData = JSON.parse(legacySwipes);
-      Object.entries(legacyData).forEach(([ratingKey, data]: [string, any]) => {
+      const legacyData: Record<string, { action: string; timestamp: number }> = JSON.parse(legacySwipes);
+      Object.entries(legacyData).forEach(([ratingKey, data]) => {
         if (data.action === 'keep_temp') {
           const expiry = data.timestamp + (30 * 24 * 60 * 60 * 1000);
           if (expiry > now) {
@@ -229,14 +243,14 @@ function App() {
       }
 
       // 2. Status/Label Filter
-      const itemLabels = item.Label || (item as any).Labels || [];
+      const itemLabels = item.Label || item.Labels || [];
       if (filterStatus === 'unlabeled') {
         if (itemLabels.length > 0) {
           console.log('Filtering out because it has labels:', item.title, itemLabels);
           return false;
         }
       } else if (filterStatus !== 'all') {
-        if (!itemLabels.some((l: any) => l.tag === filterStatus)) return false;
+        if (!itemLabels.some((l) => l.tag === filterStatus)) return false;
       }
 
       // 3. Collection Filter
@@ -255,8 +269,8 @@ function App() {
   const availableLabels = useMemo(() => {
     const labels = new Set<string>();
     allItems.forEach(item => {
-      const itemLabels = item.Label || (item as any).Labels || [];
-      itemLabels.forEach((l: any) => labels.add(l.tag));
+      const itemLabels = item.Label || item.Labels || [];
+      itemLabels.forEach((l) => labels.add(l.tag));
     });
     return Array.from(labels).sort();
   }, [allItems]);
@@ -272,6 +286,9 @@ function App() {
 
     const config = swipeConfig[direction as keyof SwipeConfig];
     if (!config || !config.actions) return;
+
+    // Save to history before executing
+    setActionHistory(prev => [{ item, direction }, ...prev].slice(0, 10));
 
     // Create a local copy to update state reactively
     const updatedItem = { ...item };
@@ -312,14 +329,64 @@ function App() {
     }
   };
 
+  const handleUndo = async () => {
+    if (actionHistory.length === 0 || !plexService) return;
+
+    const lastAction = actionHistory[0];
+    const { item, direction } = lastAction;
+    const config = swipeConfig[direction as keyof SwipeConfig];
+
+    // Remove from history immediately for responsiveness
+    setActionHistory(prev => prev.slice(1));
+
+    try {
+      // 1. Reverse actions on the server
+      for (const action of config.actions) {
+        if (action.type === 'add_label') {
+          await plexService.removeTag(item.ratingKey, 'label', action.value);
+        } else if (action.type === 'remove_label') {
+          await plexService.addTag(item.ratingKey, 'label', action.value);
+        } else if (action.type === 'add_collection') {
+          await plexService.removeTag(item.ratingKey, 'collection', action.value);
+        } else if (action.type === 'remove_collection') {
+          await plexService.addTag(item.ratingKey, 'collection', action.value);
+        }
+      }
+
+      // 2. Handle local ignore list removal
+      if (config.actions.some(a => a.type === 'ignore')) {
+        setIgnoreList(prev => {
+          const next = { ...prev };
+          delete next[item.ratingKey];
+          localStorage.setItem('ignore_list', JSON.stringify(next));
+          return next;
+        });
+      }
+
+      // 3. Restore item to the items list (reverting local metadata changes)
+      setAllItems(prev => prev.map(i => i.ratingKey === item.ratingKey ? item : i));
+      
+    } catch (err) {
+      console.error('Failed to undo action:', err);
+    }
+  };
+
   const handleSaveSettings = (url: string, token: string, newSwipeConfig: SwipeConfig) => {
-    localStorage.setItem('plex_server_url', url);
-    localStorage.setItem('plex_token', token);
+    if (url && token) {
+      localStorage.setItem('plex_server_url', url);
+      localStorage.setItem('plex_token', token);
+      setConfig({ serverUrl: url, token: token });
+    } else {
+      localStorage.removeItem('plex_server_url');
+      localStorage.removeItem('plex_token');
+      setConfig(null);
+    }
+    
     localStorage.setItem('swipe_config', JSON.stringify(newSwipeConfig));
-    setConfig({ serverUrl: url, token: token });
     setSwipeConfig(newSwipeConfig);
     setIsSettingsOpen(false);
     setSelectedLibrary(null);
+    setLibraries([]);
     setAllItems([]);
     setItems([]);
   };
@@ -364,121 +431,152 @@ function App() {
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col items-center">
-      <header className="w-full max-w-4xl p-4 flex justify-between items-center z-20 sticky top-0 bg-zinc-950/80 backdrop-blur-md">
-        <div className="flex items-center gap-2">
-          {selectedLibrary && (
+      {!isSettingsOpen && (
+        <>
+          <header className="w-full max-w-4xl p-4 flex justify-between items-center z-20 sticky top-0 bg-zinc-950/80 backdrop-blur-md">
+            <div className="flex items-center gap-2">
+              {selectedLibrary && (
+                <button 
+                  onClick={resetSelection}
+                  className="p-2 -ml-2 rounded-full hover:bg-zinc-800 transition-colors"
+                >
+                  <ChevronLeft className="w-6 h-6" />
+                </button>
+              )}
+              <h1 className="text-xl font-bold text-orange-500">PlexSwipe</h1>
+            </div>
             <button 
-              onClick={resetSelection}
-              className="p-2 -ml-2 rounded-full hover:bg-zinc-800 transition-colors"
+              onClick={() => setIsSettingsOpen(true)}
+              className="p-2 rounded-full hover:bg-zinc-800 transition-colors"
             >
-              <ChevronLeft className="w-6 h-6" />
+              <SettingsIcon className="w-6 h-6" />
             </button>
-          )}
-          <h1 className="text-xl font-bold text-orange-500">PlexSwipe</h1>
-        </div>
-        <button 
-          onClick={() => setIsSettingsOpen(true)}
-          className="p-2 rounded-full hover:bg-zinc-800 transition-colors"
-        >
-          <SettingsIcon className="w-6 h-6" />
-        </button>
-      </header>
+          </header>
 
-      <main className="w-full flex-grow flex flex-col items-center overflow-hidden">
-        {error && (
-          <div className="max-w-md w-full px-4 pt-4">
-            <div className="bg-red-900/20 border border-red-500/50 text-red-200 p-4 rounded-xl mb-6 text-center">
-              {error}
-            </div>
-          </div>
-        )}
-
-        {!config ? (
-          <div className="flex-grow flex items-center justify-center text-center">
-            <div>
-              <p className="text-zinc-400 mb-4">Please configure your Plex settings to get started.</p>
-              <button 
-                onClick={() => setIsSettingsOpen(true)}
-                className="bg-orange-600 hover:bg-orange-500 text-white px-6 py-2 rounded-lg font-semibold transition-colors shadow-lg shadow-orange-600/20"
-              >
-                Open Settings
-              </button>
-            </div>
-          </div>
-        ) : !selectedLibrary ? (
-          <div className="w-full max-w-md px-4 pt-8">
-            <LibrarySelector 
-              libraries={libraries} 
-              onSelect={handleSelectLibrary} 
-              isLoading={isLoading} 
-            />
-          </div>
-        ) : isLoading ? (
-          <div className="flex-grow flex flex-col items-center justify-center space-y-4">
-            <div className="w-12 h-12 border-4 border-orange-500 border-t-transparent rounded-full animate-spin"></div>
-            <p className="text-zinc-400">Loading {selectedLibrary.title}...</p>
-          </div>
-        ) : (
-          <div className="w-full flex-1 flex flex-col items-center min-h-0">
-            {/* Filter Bar */}
-            <div className="w-full max-w-md px-4 pb-4 animate-in slide-in-from-top duration-300">
-              <div className="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-3 flex gap-3">
-                <div className="flex-1 space-y-1">
-                  <label className="text-[10px] font-bold text-zinc-500 uppercase flex items-center gap-1">
-                    <Filter className="w-3 h-3" /> Status
-                  </label>
-                  <select
-                    value={filterStatus}
-                    onChange={(e) => setFilterStatus(e.target.value)}
-                    className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-2 py-1 text-xs text-white focus:outline-none"
-                  >
-                    <option value="all">All Items</option>
-                    <option value="unlabeled">Unlabeled (New)</option>
-                    {availableLabels.length > 0 && <optgroup label="Specific Label">
-                      {availableLabels.map(l => <option key={l} value={l}>{l}</option>)}
-                    </optgroup>}
-                  </select>
-                </div>
-                <div className="flex-1 space-y-1">
-                  <label className="text-[10px] font-bold text-zinc-500 uppercase flex items-center gap-1">
-                    <Filter className="w-3 h-3" /> Collection
-                  </label>
-                  <select
-                    value={filterCollection}
-                    onChange={(e) => setFilterCollection(e.target.value)}
-                    className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-2 py-1 text-xs text-white focus:outline-none"
-                  >
-                    <option value="all">All Collections</option>
-                    {availableCollections.map(c => <option key={c} value={c}>{c}</option>)}
-                  </select>
+          <main className="w-full flex-grow flex flex-col items-center overflow-y-auto">
+            {error && (
+              <div className="max-w-md w-full px-4 pt-4">
+                <div className="bg-red-900/20 border border-red-500/50 text-red-200 p-4 rounded-xl mb-6 text-center">
+                  {error}
                 </div>
               </div>
-            </div>
+            )}
 
-            <div className="w-full flex-1 relative flex flex-col items-center">
-              {plexService && <CardStack items={items} plexService={plexService} onAction={handleAction} swipeConfig={swipeConfig} />}
-              {items.length === 0 && !isLoading && (
-                <div className="text-center p-8 animate-in fade-in zoom-in duration-500">
-                  <div className="bg-zinc-900/50 rounded-full w-16 h-16 flex items-center justify-center mx-auto mb-4">
-                    <Filter className="w-8 h-8 text-zinc-700" />
+            {!config ? (
+              <div className="flex-grow flex items-center justify-center text-center px-4">
+                <div className="animate-in fade-in zoom-in duration-500">
+                  <div className="bg-orange-500/10 w-20 h-20 rounded-3xl flex items-center justify-center mx-auto mb-6 rotate-12">
+                    <SettingsIcon className="w-10 h-10 text-orange-500" />
                   </div>
-                  <h3 className="text-lg font-bold text-zinc-300">No items match filters</h3>
-                  <p className="text-zinc-500 text-sm mt-1">Try changing your filters or library selection.</p>
+                  <h2 className="text-2xl font-bold mb-2">Welcome to PlexSwipe</h2>
+                  <p className="text-zinc-400 mb-8 max-w-xs mx-auto">Connect your Plex server to start managing your library with simple swipe actions.</p>
                   <button 
-                    onClick={() => { setFilterStatus('all'); setFilterCollection('all'); }}
-                    className="mt-6 text-orange-500 text-sm font-semibold hover:underline"
+                    onClick={() => setIsSettingsOpen(true)}
+                    className="w-full bg-orange-600 hover:bg-orange-500 text-white py-3 rounded-xl font-bold transition-all shadow-lg shadow-orange-600/20 active:scale-95"
                   >
-                    Reset all filters
+                    Configure Settings
                   </button>
                 </div>
-              )}
-            </div>
-          </div>
-        )}
-      </main>
+              </div>
+            ) : !selectedLibrary ? (
+              <div className="w-full max-w-md px-4 pt-8">
+                <LibrarySelector 
+                  libraries={libraries} 
+                  onSelect={handleSelectLibrary} 
+                  isLoading={isLoading} 
+                />
+              </div>
+            ) : isLoading ? (
+              <div className="flex-grow flex flex-col items-center justify-center space-y-8">
+                <CardSkeleton />
+                <div className="flex flex-col items-center space-y-2">
+                  <div className="w-12 h-12 border-4 border-orange-500 border-t-transparent rounded-full animate-spin"></div>
+                  <p className="text-zinc-500 text-sm font-medium">Loading {selectedLibrary.title}...</p>
+                </div>
+              </div>
+            ) : (
+              <div className="w-full flex-1 flex flex-col items-center min-h-0">
+                {/* Filter Bar */}
+                <div className="w-full max-w-md px-4 pb-4 animate-in slide-in-from-top duration-300">
+                  <div className="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-3 flex gap-3">
+                    <div className="flex-1 space-y-1">
+                      <label className="text-[10px] font-bold text-zinc-500 uppercase flex items-center gap-1">
+                        <Filter className="w-3 h-3" /> Status
+                      </label>
+                      <select
+                        value={filterStatus}
+                        onChange={(e) => setFilterStatus(e.target.value)}
+                        className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-2 py-1 text-xs text-white focus:outline-none"
+                      >
+                        <option value="all">All Items</option>
+                        <option value="unlabeled">Unlabeled (New)</option>
+                        {availableLabels.length > 0 && <optgroup label="Specific Label">
+                          {availableLabels.map(l => <option key={l} value={l}>{l}</option>)}
+                        </optgroup>}
+                      </select>
+                    </div>
+                    <div className="flex-1 space-y-1">
+                      <label className="text-[10px] font-bold text-zinc-500 uppercase flex items-center gap-1">
+                        <Filter className="w-3 h-3" /> Collection
+                      </label>
+                      <select
+                        value={filterCollection}
+                        onChange={(e) => setFilterCollection(e.target.value)}
+                        className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-2 py-1 text-xs text-white focus:outline-none"
+                      >
+                        <option value="all">All Collections</option>
+                        {availableCollections.map(c => <option key={c} value={c}>{c}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                  
+                  <div className="flex justify-between items-center px-1 mt-2">
+                    <span className="text-[10px] font-bold text-zinc-600 uppercase tracking-widest">
+                      {items.length} {items.length === 1 ? 'item' : 'items'} remaining
+                    </span>
+                    {actionHistory.length > 0 && (
+                      <span className="text-[10px] font-bold text-zinc-600 uppercase tracking-widest">
+                        Last: {actionHistory[0].direction}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="w-full flex-1 relative flex flex-col items-center">
+                  {plexService && (
+                    <CardStack 
+                      items={items} 
+                      plexService={plexService} 
+                      onAction={handleAction} 
+                      onUndo={handleUndo}
+                      canUndo={actionHistory.length > 0}
+                      swipeConfig={swipeConfig} 
+                    />
+                  )}
+                  {items.length === 0 && !isLoading && (
+                    <div className="text-center p-8 animate-in fade-in zoom-in duration-500">
+                      <div className="bg-zinc-900/50 rounded-full w-16 h-16 flex items-center justify-center mx-auto mb-4">
+                        <Filter className="w-8 h-8 text-zinc-700" />
+                      </div>
+                      <h3 className="text-lg font-bold text-zinc-300">No items match filters</h3>
+                      <p className="text-zinc-500 text-sm mt-1">Try changing your filters or library selection.</p>
+                      <button 
+                        onClick={() => { setFilterStatus('all'); setFilterCollection('all'); }}
+                        className="mt-6 text-orange-500 text-sm font-semibold hover:underline"
+                      >
+                        Reset all filters
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </main>
+        </>
+      )}
 
       {isSettingsOpen && (
-        <SettingsModal 
+        <SettingsView 
           onSave={handleSaveSettings} 
           onClearData={handleClearData}
           onClose={() => setIsSettingsOpen(false)}

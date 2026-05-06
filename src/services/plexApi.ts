@@ -11,6 +11,10 @@ export interface PlexLibrary {
   composite: string;
 }
 
+export interface PlexTag {
+  tag: string;
+}
+
 export interface PlexMediaItem {
   ratingKey: string;
   key: string;
@@ -23,8 +27,9 @@ export interface PlexMediaItem {
   duration: number;
   addedAt: number;
   updatedAt: number;
-  Label?: { tag: string }[];
-  Collection?: { tag: string }[];
+  Label?: PlexTag[];
+  Labels?: PlexTag[]; // Some libraries use Labels instead of Label
+  Collection?: PlexTag[];
 }
 
 export interface PlexServer {
@@ -34,13 +39,41 @@ export interface PlexServer {
   local: boolean;
 }
 
+export interface PlexResourceConnection {
+  protocol: string;
+  address: string;
+  port: number;
+  uri: string;
+  local: boolean;
+}
+
+export interface PlexResource {
+  name: string;
+  clientIdentifier: string;
+  provides: string;
+  connections: PlexResourceConnection[];
+}
+
 export class PlexService {
   private baseUrl: string;
   private token: string;
+  private queue: Promise<void> = Promise.resolve();
 
   constructor(baseUrl: string, token: string) {
     this.baseUrl = baseUrl.replace(/\/$/, '');
     this.token = token;
+  }
+
+  private enqueue(task: () => Promise<void>): Promise<void> {
+    this.queue = this.queue.then(async () => {
+      try {
+        await task();
+      } catch (err) {
+        console.error('Task in PlexService queue failed:', err);
+        throw err;
+      }
+    });
+    return this.queue;
   }
 
   private getHeaders() {
@@ -95,22 +128,26 @@ export class PlexService {
   }
 
   async addTag(ratingKey: string, tagType: 'label' | 'collection', tagValue: string): Promise<void> {
-    const params = new URLSearchParams({
-      [`${tagType}[0].tag.tag`]: tagValue,
-      [`${tagType}.locked`]: '1'
-    });
-    await axios.put(this.getUrl(`/library/metadata/${ratingKey}?${params.toString()}`), null, {
-      headers: this.getHeaders()
+    return this.enqueue(async () => {
+      const params = new URLSearchParams({
+        [`${tagType}[0].tag.tag`]: tagValue,
+        [`${tagType}.locked`]: '1'
+      });
+      await axios.put(this.getUrl(`/library/metadata/${ratingKey}?${params.toString()}`), null, {
+        headers: this.getHeaders()
+      });
     });
   }
 
   async removeTag(ratingKey: string, tagType: 'label' | 'collection', tagValue: string): Promise<void> {
-    const params = new URLSearchParams({
-      [`${tagType}[0].tag.tag-`]: tagValue,
-      [`${tagType}.locked`]: '1'
-    });
-    await axios.put(this.getUrl(`/library/metadata/${ratingKey}?${params.toString()}`), null, {
-      headers: this.getHeaders()
+    return this.enqueue(async () => {
+      const params = new URLSearchParams({
+        [`${tagType}[0].tag.tag-`]: tagValue,
+        [`${tagType}.locked`]: '1'
+      });
+      await axios.put(this.getUrl(`/library/metadata/${ratingKey}?${params.toString()}`), null, {
+        headers: this.getHeaders()
+      });
     });
   }
 
@@ -166,6 +203,22 @@ export const checkPinStatus = async (pinId: number) => {
   return response.data; // { id, code, authToken, ... }
 };
 
+export const signOut = async (token: string) => {
+  const clientId = getClientIdentifier();
+  try {
+    await axios.delete(`${PLEX_TV_URL}/users/signout`, {
+      headers: {
+        'Accept': 'application/json',
+        'X-Plex-Token': token,
+        'X-Plex-Client-Identifier': clientId,
+      }
+    });
+  } catch (err) {
+    // Even if signout fails (e.g. token already expired), we proceed with local logout
+    console.error('Plex server-side signout failed:', err);
+  }
+};
+
 export const getServers = async (token: string): Promise<PlexServer[]> => {
   const clientId = getClientIdentifier();
   const response = await axios.get(`${PLEX_TV_URL}/resources?includeHttps=1`, {
@@ -176,13 +229,13 @@ export const getServers = async (token: string): Promise<PlexServer[]> => {
     }
   });
 
-  const resources = response.data || [];
+  const resources: PlexResource[] = response.data || [];
   const servers: PlexServer[] = [];
 
-  resources.forEach((resource: any) => {
+  resources.forEach((resource) => {
     if (resource.provides.includes('server')) {
       const connections = resource.connections || [];
-      connections.forEach((conn: any) => {
+      connections.forEach((conn) => {
         // Add the original URI (usually HTTPS .plex.direct if includeHttps=1)
         servers.push({
           name: `${resource.name} (${conn.local ? 'Local' : 'Remote'})`,
