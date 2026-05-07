@@ -124,7 +124,10 @@ export class PlexService {
       headers: this.getHeaders()
     });
     
-    const items: PlexMediaItem[] = response.data.MediaContainer.Metadata || [];
+    let items: PlexMediaItem[] = response.data.MediaContainer.Metadata || [];
+    
+    // Filter out Collection items (we only want to swipe on actual media)
+    items = items.filter(item => item.type !== 'collection');
 
     // Workaround for Plex not including Label properties in bulk '/all' responses
     try {
