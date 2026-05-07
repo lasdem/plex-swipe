@@ -27,6 +27,10 @@ export interface PlexMediaItem {
   duration: number;
   addedAt: number;
   updatedAt: number;
+  viewCount?: number;
+  viewOffset?: number;
+  leafCount?: number;
+  viewedLeafCount?: number;
   Label?: PlexTag[];
   Labels?: PlexTag[]; // Some libraries use Labels instead of Label
   Collection?: PlexTag[];

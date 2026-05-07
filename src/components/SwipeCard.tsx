@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import TinderCard from 'react-tinder-card';
 import type { PlexMediaItem } from '../services/plexApi';
-import { ImageOff } from 'lucide-react';
+import { ImageOff, Check } from 'lucide-react';
 
 interface TinderCardRef {
   swipe: (dir?: string) => Promise<void>;
@@ -54,8 +54,37 @@ const SwipeCard = ({ item, posterUrl, onSwipe, onCardLeftScreen, cardRef, isFlyi
           )}
 
           {/* Gradient Overlay for Text Readability */}
-          <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent" />
+          <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent pointer-events-none" />
           
+          {/* Watched Status Indicators */}
+          {item.type === 'show' ? (
+            // TV Show Logic
+            (item.leafCount || 0) - (item.viewedLeafCount || 0) > 0 ? (
+              <div className="absolute top-0 right-0 bg-zinc-900/95 text-white font-bold text-[13px] px-2 py-1 rounded-bl-md shadow z-20 flex items-center justify-center min-w-[32px] min-h-[32px]">
+                {(item.leafCount || 0) - (item.viewedLeafCount || 0)}
+              </div>
+            ) : (item.leafCount && item.leafCount > 0 && (item.leafCount || 0) - (item.viewedLeafCount || 0) === 0) ? (
+              <div className="absolute top-0 right-0 bg-zinc-900/95 text-white p-1 rounded-bl-md shadow z-20 flex items-center justify-center w-[32px] h-[32px]">
+                <Check strokeWidth={4} className="w-4 h-4" />
+              </div>
+            ) : null
+          ) : (
+            // Movie Logic
+            item.viewCount && item.viewCount > 0 ? (
+              <div className="absolute top-0 right-0 bg-zinc-900/95 text-white p-1 rounded-bl-md shadow z-20 flex items-center justify-center w-[32px] h-[32px]">
+                <Check strokeWidth={4} className="w-4 h-4" />
+              </div>
+            ) : null
+          )}
+          {(!item.viewCount && item.viewOffset !== undefined && item.viewOffset > 0 && item.duration > 0) && (
+            <div className="absolute bottom-0 left-0 right-0 h-1.5 bg-black/60 z-20" title="Partially Watched">
+              <div 
+                className="h-full bg-orange-500" 
+                style={{ width: `${Math.min(100, Math.max(0, (item.viewOffset / item.duration) * 100))}%` }} 
+              />
+            </div>
+          )}
+
           <div className="absolute top-4 left-4 flex flex-col items-start gap-2 z-10">
             {requester && (
               <span className="bg-orange-500/90 text-white text-[10px] font-bold px-2 py-1 rounded-full uppercase tracking-wider shadow-lg">
