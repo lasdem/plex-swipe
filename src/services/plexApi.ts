@@ -116,7 +116,6 @@ export class PlexService {
       includeAdvanced: '1',
       includeDetails: '1',
       includeGuids: '1',
-      includeLabels: '1',
       checkFiles: '1',
       'X-Plex-Container-Start': '0',
       'X-Plex-Container-Size': '500',
@@ -124,7 +123,38 @@ export class PlexService {
     const response = await axios.get(this.getUrl(`/library/sections/${libraryId}/all?${params.toString()}`), {
       headers: this.getHeaders()
     });
-    return response.data.MediaContainer.Metadata || [];
+    
+    const items: PlexMediaItem[] = response.data.MediaContainer.Metadata || [];
+
+    // Workaround for Plex not including Label properties in bulk '/all' responses
+    try {
+      const labelsRes = await axios.get(this.getUrl(`/library/sections/${libraryId}/label`), {
+        headers: this.getHeaders()
+      });
+      const labelDirectories = labelsRes.data.MediaContainer.Directory || [];
+      
+      await Promise.all(labelDirectories.map(async (labelDir: any) => {
+        // labelDir.key is the ID of the label
+        const labelItemsRes = await axios.get(this.getUrl(`/library/sections/${libraryId}/all?label=${labelDir.key}`), {
+          headers: this.getHeaders()
+        });
+        const labeledItems = labelItemsRes.data.MediaContainer.Metadata || [];
+        
+        labeledItems.forEach((labeledItem: any) => {
+          const target = items.find(i => i.ratingKey === labeledItem.ratingKey);
+          if (target) {
+            target.Label = target.Label || [];
+            if (!target.Label.some(l => l.tag === labelDir.title)) {
+              target.Label.push({ tag: labelDir.title });
+            }
+          }
+        });
+      }));
+    } catch (err) {
+      console.warn('Failed to bulk-fetch labels, falling back to existing data', err);
+    }
+    
+    return items;
   }
 
   async getMetadata(ratingKey: string): Promise<PlexMediaItem> {
