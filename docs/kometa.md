@@ -17,6 +17,8 @@ Add the following to your Kometa `config.yml` (or an external metadata file):
 ```yaml
 templates:
   requester_label:
+    # Prevents Kometa from creating an actual collection in Plex
+    build_collection: false
     # This builder looks for the specific tag in Radarr/Sonarr
     radarr_taglist: <<tag>>
     sonarr_taglist: <<tag>>

@@ -34,6 +34,7 @@ export interface PlexMediaItem {
   Label?: PlexTag[];
   Labels?: PlexTag[]; // Some libraries use Labels instead of Label
   Collection?: PlexTag[];
+  Guid?: { id: string }[];
 }
 
 export interface PlexServer {

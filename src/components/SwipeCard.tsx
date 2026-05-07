@@ -19,10 +19,34 @@ interface SwipeCardProps {
 
 const SwipeCard = ({ item, posterUrl, onSwipe, onCardLeftScreen, cardRef, isFlying }: SwipeCardProps) => {
   const [imgError, setImgError] = useState(false);
+  const [showInfo, setShowInfo] = useState(false);
+  
   const itemLabels = item.Label || item.Labels || [];
   const requester = itemLabels.find((l) => l.tag.startsWith('Requested by:'))?.tag.replace('Requested by:', '').trim();
   const labels = itemLabels.filter((l) => !l.tag.startsWith('Requested by:')) || [];
   const collections = item.Collection || [];
+
+  const getExternalId = (provider: 'imdb' | 'tmdb' | 'tvdb') => {
+    // Modern Plex agents use the Guid array
+    const modernId = item.Guid?.find(g => g.id.startsWith(`${provider}://`))?.id.replace(`${provider}://`, '');
+    if (modernId) return modernId;
+    
+    // Legacy Plex agents use the main guid property (e.g. com.plexapp.agents.imdb://tt1234567?lang=en)
+    const legacyProviderName = provider === 'tmdb' ? 'themoviedb' : provider === 'tvdb' ? 'thetvdb' : 'imdb';
+    if (item.guid.includes(`agents.${legacyProviderName}://`)) {
+      const match = item.guid.match(new RegExp(`agents\\.${legacyProviderName}://([^?]+)`));
+      if (match) return match[1];
+    }
+    return null;
+  };
+
+  const imdbId = getExternalId('imdb');
+  const tmdbId = getExternalId('tmdb');
+  const tvdbId = getExternalId('tvdb');
+
+  const handleCardClick = () => {
+    setShowInfo(prev => !prev);
+  };
 
   return (
     <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
@@ -36,7 +60,8 @@ const SwipeCard = ({ item, posterUrl, onSwipe, onCardLeftScreen, cardRef, isFlyi
         preventSwipe={[]} // Don't prevent any swipes
       >
         <div 
-          className={`relative w-[85vw] max-w-[340px] aspect-[2/3] max-h-full bg-zinc-900 rounded-3xl overflow-hidden shadow-2xl border border-zinc-800 flex flex-col transition-opacity duration-300 ${isFlying ? 'opacity-0 scale-95' : 'opacity-100 scale-100'}`}
+          onClick={handleCardClick}
+          className={`relative w-[85vw] max-w-[340px] aspect-[2/3] max-h-full bg-zinc-900 rounded-3xl overflow-hidden shadow-2xl border border-zinc-800 flex flex-col transition-opacity duration-300 cursor-pointer ${isFlying ? 'opacity-0 scale-95' : 'opacity-100 scale-100'}`}
         >
           {/* Poster Image or Fallback */}
           {!imgError ? (
@@ -109,6 +134,57 @@ const SwipeCard = ({ item, posterUrl, onSwipe, onCardLeftScreen, cardRef, isFlyi
           <div className="absolute bottom-0 left-0 right-0 p-6 text-left">
             <h3 className="text-xl font-bold text-white leading-tight mb-1">{item.title}</h3>
             <p className="text-zinc-300 text-sm">{item.year}</p>
+          </div>
+
+          {/* Info Overlay */}
+          <div 
+            className={`absolute inset-0 bg-zinc-900/95 p-6 flex flex-col z-30 transition-all duration-300 ${showInfo ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}
+          >
+            <div className="flex-1 overflow-y-auto pr-2 pb-4 no-scrollbar">
+              <h3 className="text-2xl font-bold text-white mb-1">{item.title}</h3>
+              <p className="text-orange-500 font-medium text-sm mb-4">
+                {item.year} {item.duration ? `• ${Math.floor(item.duration / 60000)} min` : ''}
+              </p>
+              <p className="text-zinc-300 text-sm leading-relaxed">{item.summary}</p>
+            </div>
+            
+            {(imdbId || tmdbId || tvdbId) && (
+              <div className="pt-4 border-t border-zinc-800 flex flex-wrap gap-2 shrink-0">
+                {imdbId && (
+                  <a 
+                    href={`https://www.imdb.com/title/${imdbId}`} 
+                    target="_blank" 
+                    rel="noreferrer" 
+                    onClick={e => e.stopPropagation()} 
+                    className="flex-1 bg-[#f5c518] hover:bg-[#e2b616] text-black px-3 py-2 rounded font-bold text-center text-sm transition-colors"
+                  >
+                    IMDb
+                  </a>
+                )}
+                {tmdbId && (
+                  <a 
+                    href={`https://www.themoviedb.org/${item.type === 'movie' ? 'movie' : 'tv'}/${tmdbId}`} 
+                    target="_blank" 
+                    rel="noreferrer" 
+                    onClick={e => e.stopPropagation()} 
+                    className="flex-1 bg-[#01b4e4] hover:bg-[#019bc2] text-white px-3 py-2 rounded font-bold text-center text-sm transition-colors"
+                  >
+                    TMDb
+                  </a>
+                )}
+                {tvdbId && (
+                  <a 
+                    href={`https://thetvdb.com/search?query=${tvdbId}`} 
+                    target="_blank" 
+                    rel="noreferrer" 
+                    onClick={e => e.stopPropagation()} 
+                    className="flex-1 bg-[#00a350] hover:bg-[#008f46] text-white px-3 py-2 rounded font-bold text-center text-sm transition-colors"
+                  >
+                    TVDb
+                  </a>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </TinderCard>
