@@ -64,6 +64,20 @@ const SwipeCard = ({ item, posterUrl, onSwipe, onCardLeftScreen, cardRef, isFlyi
     touchStartPos.current = null;
   };
 
+  const handleLinkTouchEnd = (e: React.TouchEvent, url: string) => {
+    e.stopPropagation(); // Prevents the card from toggling info
+    if (!touchStartPos.current) {
+      window.open(url, '_blank');
+      return;
+    }
+    const dx = e.changedTouches[0].clientX - touchStartPos.current.x;
+    const dy = e.changedTouches[0].clientY - touchStartPos.current.y;
+    if (Math.sqrt(dx * dx + dy * dy) < 10) {
+      window.open(url, '_blank');
+    }
+    touchStartPos.current = null;
+  };
+
   return (
     <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
       <TinderCard
@@ -174,6 +188,7 @@ const SwipeCard = ({ item, posterUrl, onSwipe, onCardLeftScreen, cardRef, isFlyi
                     target="_blank" 
                     rel="noreferrer" 
                     onClick={e => e.stopPropagation()} 
+                    onTouchEnd={e => handleLinkTouchEnd(e, `https://www.imdb.com/title/${imdbId}`)}
                     className="flex-1 bg-[#f5c518] hover:bg-[#e2b616] text-black px-3 py-2 rounded font-bold text-center text-sm transition-colors"
                   >
                     IMDb
@@ -185,6 +200,7 @@ const SwipeCard = ({ item, posterUrl, onSwipe, onCardLeftScreen, cardRef, isFlyi
                     target="_blank" 
                     rel="noreferrer" 
                     onClick={e => e.stopPropagation()} 
+                    onTouchEnd={e => handleLinkTouchEnd(e, `https://www.themoviedb.org/${item.type === 'movie' ? 'movie' : 'tv'}/${tmdbId}`)}
                     className="flex-1 bg-[#01b4e4] hover:bg-[#019bc2] text-white px-3 py-2 rounded font-bold text-center text-sm transition-colors"
                   >
                     TMDb
@@ -196,6 +212,7 @@ const SwipeCard = ({ item, posterUrl, onSwipe, onCardLeftScreen, cardRef, isFlyi
                     target="_blank" 
                     rel="noreferrer" 
                     onClick={e => e.stopPropagation()} 
+                    onTouchEnd={e => handleLinkTouchEnd(e, `https://thetvdb.com/search?query=${tvdbId}`)}
                     className="flex-1 bg-[#00a350] hover:bg-[#008f46] text-white px-3 py-2 rounded font-bold text-center text-sm transition-colors"
                   >
                     TVDb
