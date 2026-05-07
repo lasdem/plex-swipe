@@ -116,6 +116,7 @@ export class PlexService {
       includeAdvanced: '1',
       includeDetails: '1',
       includeGuids: '1',
+      includeLabels: '1',
       checkFiles: '1',
       'X-Plex-Container-Start': '0',
       'X-Plex-Container-Size': '500',
