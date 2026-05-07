@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import TinderCard from 'react-tinder-card';
 import type { PlexMediaItem } from '../services/plexApi';
 import { ImageOff, Check } from 'lucide-react';
@@ -20,6 +20,7 @@ interface SwipeCardProps {
 const SwipeCard = ({ item, posterUrl, onSwipe, onCardLeftScreen, cardRef, isFlying }: SwipeCardProps) => {
   const [imgError, setImgError] = useState(false);
   const [showInfo, setShowInfo] = useState(false);
+  const touchStartPos = useRef<{ x: number, y: number } | null>(null);
   
   const itemLabels = item.Label || item.Labels || [];
   const requester = itemLabels.find((l) => l.tag.startsWith('Requested by:'))?.tag.replace('Requested by:', '').trim();
@@ -48,6 +49,21 @@ const SwipeCard = ({ item, posterUrl, onSwipe, onCardLeftScreen, cardRef, isFlyi
     setShowInfo(prev => !prev);
   };
 
+  const handleTouchStart = (e: React.TouchEvent) => {
+    touchStartPos.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    if (!touchStartPos.current) return;
+    const dx = e.changedTouches[0].clientX - touchStartPos.current.x;
+    const dy = e.changedTouches[0].clientY - touchStartPos.current.y;
+    // If movement is less than 10 pixels, treat it as a tap
+    if (Math.sqrt(dx * dx + dy * dy) < 10) {
+      handleCardClick();
+    }
+    touchStartPos.current = null;
+  };
+
   return (
     <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
       <TinderCard
@@ -61,6 +77,8 @@ const SwipeCard = ({ item, posterUrl, onSwipe, onCardLeftScreen, cardRef, isFlyi
       >
         <div 
           onClick={handleCardClick}
+          onTouchStart={handleTouchStart}
+          onTouchEnd={handleTouchEnd}
           className={`relative w-[85vw] max-w-[340px] aspect-[2/3] max-h-full bg-zinc-900 rounded-3xl overflow-hidden shadow-2xl border border-zinc-800 flex flex-col transition-opacity duration-300 cursor-pointer ${isFlying ? 'opacity-0 scale-95' : 'opacity-100 scale-100'}`}
         >
           {/* Poster Image or Fallback */}
